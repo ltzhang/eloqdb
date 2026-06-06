@@ -1,25 +1,20 @@
 # EloqDB
 
-A clean, self-contained umbrella build for the Eloq product family — **EloqKV** (Redis),
-**EloqSQL** (MariaDB), **EloqDoc** (MongoDB), and **EloquentDB** (the unified `eloqdb` binary
-combining EloqKV + EloqSQL) — that builds every dependency **locally without `sudo`** into a
-single shared prefix, and pulls each product **optionally**.
+EloqDB is a single-directory, **sudo-free** umbrella build for the Eloq product family. From one
+checkout it fetches each product and its shared dependencies, builds everything into a local
+prefix (`install/`), and produces the product binaries — without touching system directories.
 
-Every common dependency is checked out **once** under `dependencies/` and consumed directly — the
-build uses **no directory symlinks** and runs **no `git submodule update` / `--recurse-submodules`**
-during compilation (each eloqdata build script is patched on its `lintao-mod` branch to take the
-shared checkout via `-D*_DIR` overrides).
+| Product | Compatible with | Produces |
+|---------|-----------------|----------|
+| **eloqkv** | Redis | `eloqkv` |
+| **eloqsql** | MariaDB | `mariadbd` / `mysqld` |
+| **eloqdoc** | MongoDB 4.0.3 | `mongod` *(needs Python 2.7 — see notes)* |
+| **eloquentdb** | unified engine | `eloqdb` (eloqkv + eloqsql in one binary) |
 
-**Build status:** eloqkv ✅, eloqsql ✅, eloquentdb ✅ build & run end-to-end; eloqdoc's Eloq cmake
-module builds, its MongoDB server stage is on hold pending a Python 2→3 decision (see below).
+## 1. Prerequisites
 
-See [CLAUDE.md](CLAUDE.md) for design rationale and [BUILD-PLAN.md](BUILD-PLAN.md) for the
-dependency inventory and build order.
-
-## System prerequisites (install once, via your package manager)
-
-EloqDB does **not** rebuild the base toolchain or common system libraries — it assumes they are
-already present. On Ubuntu 24.04:
+Install the system toolchain and libraries once (EloqDB builds the heavy/pinned libraries itself,
+but relies on these being present):
 
 ```bash
 sudo apt-get install -y \
@@ -28,89 +23,69 @@ sudo apt-get install -y \
     libzstd-dev libbz2-dev libcurl4-openssl-dev libc-ares-dev libuv1-dev libboost-context-dev \
     libjsoncpp-dev libreadline-dev libncurses-dev libsqlite3-dev libffi-dev
 ```
-`bison` is required by eloqsql (MariaDB's parser); `libsqlite3-dev`/`libffi-dev`/`libbz2-dev` are
-needed only by eloqdoc's hermetic Python 2.7. Everything else (protobuf, abseil, grpc, brpc, braft,
-glog, mimalloc, cuckoofilter, rocksdb, data_substrate, …) is built locally into `install/` — only
-**libraries** go there; **build tools stay on apt**. Nothing is installed to system directories.
 
-## Quick start
+You also need a **GitHub SSH key**: EloqDB clones the Eloq repositories (`eloqdata/*`) over SSH.
+Third-party dependencies are fetched over https and need no credentials.
 
-The build is **layered** — each layer depends on the one below it:
-
-```
-layer 1: deps            third-party + eloqdata forks   ->  scripts/deps.sh
-layer 2: data_substrate  the shared Eloq core           ->  scripts/substrate.sh
-layer 3: projects        eloqkv / eloqsql / eloqdoc / eloquentdb  ->  scripts/projects/*.sh
-```
+## 2. Build
 
 ```bash
-source env.sh                 # exports the shared-prefix contract (ELOQDB_PREFIX=install/)
-./scripts/build.sh            # all layers: deps -> substrate -> projects
+source env.sh          # sets the local install prefix + build environment (run in each shell)
+./scripts/build.sh     # builds the enabled products: deps -> shared core -> products
 ```
 
-Build a single layer (useful for iterating):
+Product binaries land under `build/<product>/`; shared libraries install into `install/`. Keep
+`env.sh` sourced when running a binary (it sets `LD_LIBRARY_PATH`):
 
 ```bash
-./scripts/build.sh --deps-only            # layer 1 only
-./scripts/build.sh --data-substrate       # layer 2 only (requires layer 1 built)
-./scripts/build.sh --product eloqkv       # all layers, projects scoped to eloqkv
-./scripts/build.sh --with-tests           # layer 1 also builds test deps (Catch2, FakeIt)
-ELOQDB_JOBS=8 ./scripts/build.sh          # cap parallelism
+./build/eloqkv/eloqkv --version
+./build/eloqsql/sql/mariadbd --version
+./build/eloquentdb/eloqdb --version
 ```
 
-## Choosing what to build
+## 3. Choosing what to build
 
-Edit [manifest.toml](manifest.toml): set `enabled = true` for the products you want, and adjust
-each product's `with_data_store` / `with_log_state` feature flags. The default
-(`ELOQDSS_ELOQSTORE` + `ROCKSDB`) builds a **minimal stack with no cloud dependencies**
-(AWS SDK, Google Cloud SDK, RocksDB Cloud are pulled in only when a selected backend needs them).
+Edit [manifest.toml](manifest.toml): set `enabled = true` for the products you want, and adjust each
+product's backend flags (`with_data_store`, `with_log_state`). The default
+(`ELOQDSS_ELOQSTORE` + `ROCKSDB`) is a minimal stack with **no cloud dependencies** — the AWS,
+Google Cloud, and RocksDB-Cloud SDKs are built only when a selected backend needs them.
 
-## Layout
+Build subsets or iterate on one layer:
 
-| Path | Purpose |
-|------|---------|
+```bash
+./scripts/build.sh --product eloqkv     # one product (plus its dependencies)
+./scripts/build.sh --deps-only          # shared third-party + fork dependencies only
+./scripts/build.sh --data-substrate     # the shared Eloq core only
+./scripts/build.sh --with-tests         # also build test deps (Catch2, FakeIt)
+```
+
+## 4. Layout
+
+| Path | Contents |
+|------|----------|
 | `manifest.toml` | which products to build + their feature flags |
-| `env.sh` | shared-prefix environment contract |
-| `dependencies/data_substrate/` | the shared Eloq core (eloqdata/tx_service), latest |
-| `dependencies/sub_modules/` | eloqdata/ forks (brpc, braft, glog, mimalloc, cuckoofilter), latest |
-| `dependencies/third_party/` | pinned upstream deps |
-| `projects/` | product checkouts (optional; created by the build) |
-| `scripts/build.sh` | umbrella orchestrator (dispatches the 3 layers) |
-| `scripts/deps.sh` | layer 1 — shared dependency recipes (sudo-free) |
-| `scripts/substrate.sh` | layer 2 — the shared `data_substrate` core |
-| `scripts/projects/*.sh` | layer 3 — per-product build adapters |
+| `env.sh` | the shared-prefix build environment (`source` it) |
+| `projects/` | product checkouts (created by the build; empty until selected) |
+| `dependencies/` | all shared dependency checkouts (`third_party/`, `sub_modules/`, `data_substrate/`) |
+| `scripts/build.sh` | top-level orchestrator |
+| `scripts/projects/*.sh` | per-product build adapters |
 | `build/` | all build trees |
-| `install/` | the shared local prefix (`include/ lib/ bin/`) |
+| `install/` | the local prefix (`include/ lib/ bin/`) — replaces `/usr/local`, no sudo |
 
-## Versioning policy
+## Notes
 
-- **`eloqdata/` repos** → always built from the **latest** of their default branch.
-- **All other third-party repos** → **pinned** to known-good versions (in `scripts/deps.sh`).
+- **Build parallelism / memory.** `env.sh` caps `ELOQDB_JOBS` to `min(nproc, ½·RAM_GB, 8)` because
+  the heavy C++ translation units (MariaDB `sql/`, abseil, the core) can each use multiple GB and
+  OOM-kill a full-core build. Lower it further if a build still dies suddenly:
+  `ELOQDB_JOBS=4 ./scripts/build.sh`.
 
-## EloquentDB (unified binary)
+- **Versioning.** Eloq repositories (`eloqdata/*`) are built from the latest of their default
+  branch; all other third-party dependencies are pinned to known-good versions.
 
-**EloquentDB** (`eloqdata/eloquentdb`) is itself an umbrella: its CMake links **EloqKV** and
-**EloqSQL** plus the shared core into a single `eloqdb` executable. Upstream it pulls each engine
-as a *pinned git submodule*; this build does **not** — the adapter points each submodule path at
-this umbrella's own checkout (`projects/<engine>`, the shared `dependencies/data_substrate`) and
-follows **latest**, so all products share one source of truth. The wiring is driven by
-eloquentdb's own `.gitmodules`. Our edits to eloquentdb itself go on the `lintao-mod` branch.
+- **eloqdoc / Python 2.7.** eloqdoc is a MongoDB 4.0.3 fork (the last AGPL release), whose build
+  requires Python 2.7. Its adapter provisions a hermetic Python 2.7 via `pyenv` automatically — no
+  system Python changes — so the extra `libsqlite3-dev`/`libbz2-dev`/`libffi-dev` packages above
+  are needed for that interpreter. The MongoDB server build is experimental.
 
-Enable it in [manifest.toml](manifest.toml) (`[products.eloquentdb] enabled = true`); the
-top-level repo is cloned without its submodules (`recurse_submodules = false`).
-
-## EloqDoc / Python 2.7 (on hold)
-
-EloqDoc is locked to MongoDB 4.0.3 (last AGPL release), whose SCons build needs Python 2.7.
-Its adapter provisions a hermetic Python 2.7 via `pyenv` (no system changes) and the Eloq cmake
-module builds against the shared prefix. The MongoDB **server** stage is currently **on hold**: it
-needs the Py2.7 toolchain complete (`bz2`/`_sqlite3`/`ctypes` modules — hence the apt packages
-above — plus `Cheetah` via pip2), and the project may instead port the build scripts to Python 3.
-See the eloqdoc section in [CLAUDE.md](CLAUDE.md) for the Option A (isolate Py2.7) vs Option B
-(port to Py3) decision.
-
-## Build parallelism (memory)
-
-`env.sh` caps `ELOQDB_JOBS` to `min(nproc, ½·RAM_GB, 8)` because the heavy C++ translation units
-(MariaDB `sql/`, abseil, tx_service) can each use multiple GB and OOM-kill a full-core build. Lower
-it further if a build still dies suddenly: `ELOQDB_JOBS=4 ./scripts/build.sh`.
+For design rationale, the full dependency inventory, and build internals, see
+[CLAUDE.md](CLAUDE.md) and [BUILD-PLAN.md](BUILD-PLAN.md).
