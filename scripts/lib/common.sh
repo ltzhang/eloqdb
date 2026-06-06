@@ -19,7 +19,7 @@ run_with_retry() {
 }
 
 # clone_latest <url> <dest> [branch]
-# For eloqdata/ltzhang repos: clone (or fast-forward) to the latest HEAD of the
+# For eloqdata repos: clone (or fast-forward) to the latest HEAD of the
 # eloq_pick_branch <url> [fallback]
 # Echo ELOQDB_MOD_BRANCH if the remote has it (our changes live there), else the fallback
 # (empty => the remote's default branch). Lets us keep eloqdata default branches pristine.
@@ -35,21 +35,69 @@ eloq_pick_branch() {
 
 # default or named branch. Always tracks latest — ignores any pinned commit.
 # Prefers ELOQDB_MOD_BRANCH (our modifications branch) when the remote has it.
+# 4th arg (skip_submodules=1): clone the top-level repo ONLY — don't recurse/init submodules.
+# Used for umbrella repos (e.g. eloquentdb) whose submodules we override with our own checkouts.
 clone_latest() {
-    local url=$1 dest=$2 branch=${3:-}
+    local url=$1 dest=$2 branch=${3:-} skip_submodules=${4:-0}
     branch="$(eloq_pick_branch "$url" "$branch")"
+    local recurse=(--recurse-submodules)
+    [ "$skip_submodules" = 1 ] && recurse=()
     if [ -d "$dest/.git" ]; then
         eloqdb_log "update (latest): $dest"
-        git -C "$dest" fetch --recurse-submodules origin
+        git -C "$dest" fetch "${recurse[@]}" origin
         if [ -n "$branch" ]; then git -C "$dest" checkout "$branch"; fi
-        git -C "$dest" pull --recurse-submodules --ff-only
+        git -C "$dest" pull "${recurse[@]}" --ff-only
     else
         eloqdb_log "clone (latest): $url -> $dest"
-        local args=(clone --recurse-submodules)
+        local args=(clone "${recurse[@]}")
         [ -n "$branch" ] && args+=(-b "$branch")
         run_with_retry git "${args[@]}" "$url" "$dest"
     fi
-    git -C "$dest" submodule update --init --recursive
+    [ "$skip_submodules" = 1 ] || git -C "$dest" submodule update --init --recursive
+}
+
+# clone_product <url> <dest> [branch]
+# Clone/update a product top-level, then init its PROJECT-LOCAL submodules (e.g. eloqkv's
+# crcspeed, eloqsql's vendored rocksdb/libmariadb) — but NOT data_substrate, the shared core,
+# which every product consumes from dependencies/ via -DDATA_SUBSTRATE_DIR. This honors the
+# no-stray-pulls rule: no recursive pull of the heavy core (and its eloqstore/abseil subtree)
+# into the product tree.
+clone_product() {
+    local url=$1 dest=$2 branch=${3:-}
+    branch="$(eloq_pick_branch "$url" "$branch")"
+    if [ -d "$dest/.git" ]; then
+        eloqdb_log "update product (latest): $dest"
+        git -C "$dest" fetch origin
+        [ -n "$branch" ] && git -C "$dest" checkout "$branch"
+        git -C "$dest" pull --ff-only 2>/dev/null || true
+    else
+        eloqdb_log "clone product (latest, shallow): $url -> $dest"
+        # Shallow: these products (MariaDB/MongoDB forks) are huge; depth-1 cuts transfer size and
+        # survives flaky networks. We follow HEAD, so history isn't needed.
+        local args=(clone --depth 1); [ -n "$branch" ] && args+=(-b "$branch")
+        run_with_retry git "${args[@]}" "$url" "$dest"
+    fi
+    # Init every declared submodule EXCEPT data_substrate (recurse within the project-local ones).
+    if [ -f "$dest/.gitmodules" ]; then
+        local paths=() p
+        while read -r p; do
+            [ "$(basename "$p")" = "data_substrate" ] && continue
+            paths+=("$p")
+        done < <(git -C "$dest" config -f .gitmodules --get-regexp '\.path$' 2>/dev/null | awk '{print $2}')
+        if [ ${#paths[@]} -gt 0 ]; then
+            eloqdb_log "init project-local submodules (excluding data_substrate): ${paths[*]}"
+            run_with_retry git -C "$dest" submodule update --init --recursive --depth 1 -- "${paths[@]}"
+        fi
+    fi
+}
+
+# eloq_link_path <link> <target> — idempotent symlink (replaces a stale dir/symlink at <link>).
+# Generic form of the data_substrate linking used to point a repo's submodule path at one of our
+# own shared/latest checkouts instead of the pinned submodule.
+eloq_link_path() {
+    local link=$1 target=$2
+    [ -L "$link" ] && [ "$(readlink "$link")" = "$target" ] && return 0
+    rm -rf "$link"; mkdir -p "$(dirname "$link")"; ln -s "$target" "$link"
 }
 
 # clone_pinned <url> <dest> <ref>
@@ -97,21 +145,30 @@ cmake_install() {
 dep_done()      { [ -f "$ELOQDB_PREFIX/.eloqdb/$1.done" ]; }
 dep_mark_done() { mkdir -p "$ELOQDB_PREFIX/.eloqdb"; touch "$ELOQDB_PREFIX/.eloqdb/$1.done"; }
 
-# Ensure the ONE shared data_substrate checkout exists (latest of eloqdata/tx_service),
-# then point a product's data_substrate submodule path at it via symlink. This gives every
-# product the same data_substrate *version* without modifying its CMake (which builds it
-# inline via add_subdirectory). <product_dir> <relpath-to-data_substrate>
-link_shared_data_substrate() {
-    local product_dir=$1 relpath=$2
+# Ensure the ONE shared data_substrate checkout exists (latest of eloqdata/tx_service), cloned
+# top-level only (no submodule recursion — substrate.sh places the sub-deps as real checkouts).
+# Never re-fetch an existing checkout: it may be on a local lintao-mod with our build-script
+# patches, and a pull could advance source past the already-built libraries.
+eloq_ensure_data_substrate() {
     local shared="$ELOQDB_DATA_SUBSTRATE"
-    clone_latest "$ELOQDB_DATA_SUBSTRATE_REPO" "$shared" "$ELOQDB_DATA_SUBSTRATE_BRANCH"
-    local target="$product_dir/$relpath"
-    if [ -L "$target" ]; then
-        eloqdb_log "data_substrate already linked: $relpath"
-    else
-        eloqdb_log "linking shared data_substrate -> $relpath"
-        rm -rf "$target"
-        mkdir -p "$(dirname "$target")"
-        ln -s "$shared" "$target"
+    if [ ! -d "$shared/.git" ]; then
+        clone_latest "$ELOQDB_DATA_SUBSTRATE_REPO" "$shared" "$ELOQDB_DATA_SUBSTRATE_BRANCH" 1
     fi
+}
+
+# The dependency-directory contract (NO symlinks): every build that compiles data_substrate
+# (the substrate layer and every product, which build it inline via add_subdirectory) passes
+# these so the core finds each sub-dep at its single shared checkout under dependencies/ instead
+# of an in-tree submodule path. Matches the overridable vars patched into the eloqdata CMake on
+# their lintao-mod branches.
+#   ELOQ_ABSEIL_DIR        -> the one abseil checkout (third_party)
+#   ELOQ_TXLOG_PROTO_DIR   -> the one tx-log-protos checkout
+#   ELOQSTORE_PARENT_DIR   -> parent of the one eloqstore checkout (eloqstore = $DIR/eloqstore)
+#   DATA_SUBSTRATE_DIR     -> the shared data_substrate checkout (for products' add_subdirectory)
+eloq_substrate_dir_flags() {
+    printf '%s\n' \
+        "-DELOQ_ABSEIL_DIR=$ELOQDB_THIRD_PARTY/abseil-cpp" \
+        "-DELOQ_TXLOG_PROTO_DIR=$ELOQDB_DATA_SUBSTRATE/tx-log-protos" \
+        "-DELOQSTORE_PARENT_DIR=$ELOQDB_DATA_SUBSTRATE" \
+        "-DDATA_SUBSTRATE_DIR=$ELOQDB_DATA_SUBSTRATE"
 }

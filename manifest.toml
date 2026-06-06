@@ -1,7 +1,7 @@
 # EloqDB product manifest — the source of truth for which products are built.
 #
 # Versioning policy (see CLAUDE.md):
-#   - eloqdata/ and ltzhang/ repos  -> always latest (default-branch HEAD)
+#   - eloqdata/ repos (and the ltzhang/eloqdb umbrella) -> always latest (default-branch HEAD)
 #   - all other third-party repos   -> pinned (see scripts/deps/*.sh / BUILD-PLAN.md)
 #
 # `scripts/build.sh` clones only enabled products into projects/, builds the union of their
@@ -33,3 +33,16 @@ repo    = "https://github.com/eloqdata/eloqdoc.git"
 branch  = ""                     # empty => remote default (prefers ELOQDB_MOD_BRANCH)
 build   = "scons"                # MongoDB 4.0.3 fork: SCons + Python 2.7 (provisioned by adapter)
 adapter = "scripts/projects/eloqdoc.sh"
+
+# eloquentdb is itself an umbrella: one `eloqdb` binary linking eloqkv + eloqsql + the shared
+# core. Upstream it pulls each engine as a pinned git submodule; here we DON'T — its submodule
+# paths are pointed at this umbrella's own checkouts (projects/<engine>, shared data_substrate)
+# and follow latest. recurse_submodules=false => clone the top-level repo only; the adapter wires
+# the submodule paths. Our edits to eloquentdb itself go on ELOQDB_MOD_BRANCH (lintao-mod).
+[products.eloquentdb]
+enabled            = false
+repo               = "https://github.com/eloqdata/eloquentdb.git"
+branch             = ""          # empty => remote default (prefers ELOQDB_MOD_BRANCH/lintao-mod)
+build              = "cmake"
+adapter            = "scripts/projects/eloquentdb.sh"
+recurse_submodules = false       # umbrella repo: override submodules with our own checkouts

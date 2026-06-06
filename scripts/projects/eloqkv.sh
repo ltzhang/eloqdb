@@ -13,14 +13,17 @@ BLD="$ELOQDB_BUILD/eloqkv"
 WITH_DATA_STORE="${ELOQDB_WITH_DATA_STORE:-ELOQDSS_ELOQSTORE}"
 WITH_LOG_STATE="${ELOQDB_WITH_LOG_STATE:-ROCKSDB}"
 
-# One shared data_substrate version for every product.
-link_shared_data_substrate "$SRC" "data_substrate"
+# One shared data_substrate for every product, built inline against the shared checkout under
+# dependencies/ — pointed at via -DDATA_SUBSTRATE_DIR + the dep-dir flags (no symlinks).
+eloq_ensure_data_substrate
+mapfile -t DS_DIR_FLAGS < <(eloq_substrate_dir_flags)
 
 eloqdb_log "Configuring eloqkv (data_store=$WITH_DATA_STORE, log_state=$WITH_LOG_STATE)"
 cmake -S "$SRC" -B "$BLD" \
     -DCMAKE_BUILD_TYPE=RelWithDebInfo \
     -DCMAKE_PREFIX_PATH="$ELOQDB_PREFIX" \
     -DCMAKE_INSTALL_PREFIX="$ELOQDB_PREFIX" \
+    "${DS_DIR_FLAGS[@]}" \
     -DWITH_DATA_STORE="$WITH_DATA_STORE" \
     -DWITH_LOG_STATE="$WITH_LOG_STATE" \
     -DBRPC_WITH_GLOG=ON

@@ -37,14 +37,17 @@ ensure_python2() {
 }
 
 ensure_python2
-# Shared data_substrate version (eloqdoc nests it under the eloq module).
-link_shared_data_substrate "$SRC" "src/mongo/db/modules/eloq/data_substrate"
+# Shared data_substrate, built inline against the shared checkout under dependencies/ — pointed
+# at via -DDATA_SUBSTRATE_DIR + the dep-dir flags (no symlinks).
+eloq_ensure_data_substrate
+mapfile -t DS_DIR_FLAGS < <(eloq_substrate_dir_flags)
 
 # 1) Eloq core module via cmake (links shared deps + data_substrate).
 eloqdb_log "Building eloqdoc Eloq core module (cmake)"
 cmake -S "$SRC/src/mongo/db/modules/eloq" -B "$SRC/src/mongo/db/modules/eloq/build" \
     -DBUILD_SHARED_LIBS=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
     -DCMAKE_PREFIX_PATH="$ELOQDB_PREFIX" -DCMAKE_INSTALL_PREFIX="$ELOQDB_PREFIX" \
+    "${DS_DIR_FLAGS[@]}" \
     -DCMAKE_CXX_STANDARD=17 -DCMAKE_BUILD_TYPE=RelWithDebInfo \
     -DEXT_TX_PROC_ENABLED=ON -DELOQ_MODULE_ENABLED=ON -DSTATISTICS=ON -DUSE_ASAN=OFF \
     -DWITH_LOG_STATE="$WITH_LOG_STATE" -DWITH_DATA_STORE="$WITH_DATA_STORE"

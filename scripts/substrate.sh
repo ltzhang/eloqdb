@@ -25,7 +25,7 @@ DS_MODULE="${ELOQDB_ELOQ_MODULE:-}"
 # cloned ONCE to a flat location and symlinked into the deep path the build expects. This keeps all
 # checkouts shallow (no submodules buried under other repos) and de-duplicates shared ones (e.g.
 # tx-log-protos, used by both tx_service and log_service, becomes a single checkout).
-# Versioning: eloqdata/ltzhang -> latest; upstream third-party -> pinned.
+# Versioning: eloqdata -> latest (prefers lintao-mod); upstream third-party -> pinned.
 ELOQSTORE_REPO="https://github.com/eloqdata/eloqstore.git"
 ELOQSTORE_BRANCH=""   # empty => remote default (unless ELOQDB_MOD_BRANCH exists)
 PIN_ABSEIL_REF="69195d5bd2416a7224416887c78353ee8edf67ee"   # must match deps.sh (the shared abseil)
@@ -91,48 +91,54 @@ clone_data_substrate() {
     rm -rf "$ds/.git/modules"
 }
 
-# Flatten every (recursive) data_substrate submodule to depth-2, categorized by origin:
-#   third_party/     = upstream used as-is (abseil, concurrentqueue, inih)
-#   sub_modules/     = eloqdata forks of upstream (brpc, braft, ... — handled in deps.sh)
-#   data_substrate/  = original Eloq projects (log_service, tx-log-protos, eloqstore)
-# Each is one checkout, symlinked into the deep path the build expects; shared ones (tx-log-protos)
-# get a single checkout.
-flatten_submodules() {
-    local ds="$ELOQDB_DATA_SUBSTRATE" sm="$ELOQDB_SUBMODULES" tp="$ELOQDB_THIRD_PARTY"
-    eloqdb_log "flattening data_substrate submodules to depth-2 (Eloq-original under data_substrate/)"
-    rm -rf "$sm/tx-log-protos" "$sm/log_service" "$sm/eloqstore"   # clean old (mis-categorized) locations
-    # upstream third-party (used as-is) -> third_party/  (pinned)
-    _flat_pinned https://github.com/abseil/abseil-cpp.git          "$tp/abseil-cpp"      "$PIN_ABSEIL_REF"
-    _flat_pinned https://github.com/cameron314/concurrentqueue.git "$tp/concurrentqueue" "$PIN_CONCURRENTQUEUE"
-    _flat_pinned https://github.com/benhoyt/inih.git               "$tp/inih"            "$PIN_INIH"
-    # original Eloq projects -> data_substrate/  (latest; prefers ELOQDB_MOD_BRANCH)
-    _flat_latest https://github.com/eloqdata/tx-log-protos.git     "$ds/tx-log-protos"
-    _flat_latest https://github.com/eloqdata/log_service.git       "$ds/log_service"
-    _flat_latest "$ELOQSTORE_REPO"                                 "$ds/eloqstore" "$ELOQSTORE_BRANCH"
-    # symlink flat checkouts into the deep paths the build expects
-    _link "$ds/tx_service/abseil-cpp"                           "$tp/abseil-cpp"
-    _link "$ds/tx_service/tx-log-protos"                        "$ds/tx-log-protos"
-    _link "$ds/store_handler/eloq_data_store_service/eloqstore" "$ds/eloqstore"
-    _link "$ds/log_service/tx-log-protos"                       "$ds/tx-log-protos"   # de-dup: one tx-log-protos
-    _link "$ds/eloqstore/external/concurrentqueue"              "$tp/concurrentqueue"
-    _link "$ds/eloqstore/external/inih"                         "$tp/inih"
-    # log_service is a real checkout at its natural path ($ds/log_service) — no symlink needed.
-    # eloqstore/external/abseil intentionally NOT created — eloqstore links tx_service's abseil.
+# Fetch data_substrate's sub-deps as REAL checkouts under dependencies/ — NO symlinks, and never
+# pulled during the build (the eloqdata CMake is patched on lintao-mod to consume these paths and
+# default GIT_SUBMODULE=OFF). Each dep has a SINGLE checkout:
+#   third_party/abseil-cpp                 -> consumed via -DELOQ_ABSEIL_DIR
+#   data_substrate/tx-log-protos           -> consumed via -DELOQ_TXLOG_PROTO_DIR (shared by
+#                                             tx_service + log_service)
+#   data_substrate/eloqstore               -> consumed via -DELOQSTORE_PARENT_DIR
+#   data_substrate/log_service             -> used at its natural path
+#   data_substrate/eloqstore/external/{concurrentqueue,inih} -> eloqstore-private, at their
+#                                             natural in-tree path (real checkouts, pinned)
+fetch_substrate_deps() {
+    local ds="$ELOQDB_DATA_SUBSTRATE" tp="$ELOQDB_THIRD_PARTY"
+    eloqdb_log "fetching data_substrate sub-deps as real checkouts (no symlinks)"
+    # Remove any directory symlinks left by the previous (symlink-based) layout so real checkouts
+    # can land. `rm -f` only unlinks symlinks; real dirs are left for _flat_* to manage.
+    local lnk
+    for lnk in "$ds/tx_service/abseil-cpp" "$ds/tx_service/tx-log-protos" \
+               "$ds/store_handler/eloq_data_store_service/eloqstore" \
+               "$ds/log_service/tx-log-protos" \
+               "$ds/eloqstore/external/concurrentqueue" "$ds/eloqstore/external/inih"; do
+        [ -L "$lnk" ] && rm -f "$lnk"
+    done
+    # abseil: one shared checkout in third_party/ (pinned to the commit tx_service vendors).
+    _flat_pinned https://github.com/abseil/abseil-cpp.git "$tp/abseil-cpp" "$PIN_ABSEIL_REF"
+    # Eloq-original cores: one flat checkout each under data_substrate/ (latest).
+    _flat_latest https://github.com/eloqdata/tx-log-protos.git "$ds/tx-log-protos"
+    _flat_latest https://github.com/eloqdata/log_service.git   "$ds/log_service"
+    _flat_latest "$ELOQSTORE_REPO"                             "$ds/eloqstore" "$ELOQSTORE_BRANCH"
+    # eloqstore-private external deps: real checkouts at the in-tree path eloqstore expects.
+    _flat_pinned https://github.com/cameron314/concurrentqueue.git "$ds/eloqstore/external/concurrentqueue" "$PIN_CONCURRENTQUEUE"
+    _flat_pinned https://github.com/benhoyt/inih.git               "$ds/eloqstore/external/inih"            "$PIN_INIH"
+    # No eloqstore/external/abseil — eloqstore links tx_service's abseil under WITH_TXSERVICE.
 }
 
 build_data_substrate() {
     if dep_done data_substrate; then eloqdb_log "data_substrate already built"; return 0; fi
-    clone_data_substrate
-    flatten_submodules
     local bld="$ELOQDB_BUILD/substrate/data_substrate"
     # One shared lib bakes in ONE product identity (metrics/branches gated on ELOQ_MODULE_*).
     local module_def=""
     [ -n "$DS_MODULE" ] && module_def="-DCMAKE_CXX_FLAGS=-D${DS_MODULE}"
     eloqdb_log "building data_substrate (data_store=$DS_DATA_STORE, module=${DS_MODULE:-none})"
-    # -DGIT_SUBMODULE=OFF stops eloqstore's CMake from force re-initing external/abseil.
+    # Dependency dirs point at the single shared checkouts (no symlinks); GIT_SUBMODULE=OFF so the
+    # build never pulls submodules.
+    local dir_flags; mapfile -t dir_flags < <(eloq_substrate_dir_flags)
     cmake -S "$ELOQDB_DATA_SUBSTRATE" -B "$bld" \
         -DCMAKE_PREFIX_PATH="$ELOQDB_PREFIX" -DCMAKE_INSTALL_PREFIX="$ELOQDB_PREFIX" \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo -DGIT_SUBMODULE=OFF \
+        "${dir_flags[@]}" \
         -DWITH_DATA_STORE="$DS_DATA_STORE" $module_def
     cmake --build "$bld" -j "$ELOQDB_JOBS"
     cmake --install "$bld"
@@ -141,4 +147,8 @@ build_data_substrate() {
 }
 
 check_deps_layer
+# Always ensure the source tree is set up (idempotent), even if the build is cached — products
+# build data_substrate inline against this same checkout.
+clone_data_substrate
+fetch_substrate_deps
 build_data_substrate

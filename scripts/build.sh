@@ -74,6 +74,7 @@ if [ ${#ENABLED[@]} -gt 0 ]; then
         eloqkv)  DEPS_MODULE="ELOQ_MODULE_ELOQKV" ;;
         eloqsql) DEPS_MODULE="ELOQ_MODULE_ELOQSQL" ;;
         eloqdoc) DEPS_MODULE="ELOQ_MODULE_ELOQDOC" ;;
+        eloquentdb) DEPS_MODULE="ELOQ_MODULE_ELOQKV" ;;  # combined kv+sql binary; bake kv's labels
     esac
     [ ${#ENABLED[@]} -gt 1 ] && eloqdb_warn "multiple products enabled; shared data_substrate baked with $_p0's module ($DEPS_MODULE) — others get its metric labels"
 fi
@@ -115,11 +116,19 @@ layer_substrate() {
 layer_projects() {
     [ ${#ENABLED[@]} -eq 0 ] && eloqdb_die "no enabled products to build"
     for p in "${ENABLED[@]}"; do
-        local repo branch adapter ds ls
+        local repo branch adapter ds ls recurse skip
         repo="$(toml_get "products.$p" repo)"; branch="$(toml_get "products.$p" branch)"
         adapter="$(toml_get "products.$p" adapter)"
         [ -n "$repo" ] || eloqdb_die "no repo for product $p"
-        clone_latest "$repo" "$ELOQDB_PROJECTS/$p" "$branch"
+        # Umbrella products (recurse_submodules=false, e.g. eloquentdb) get a top-level-only clone;
+        # their adapter wires submodule paths itself. Normal products clone top-level + their
+        # project-local submodules, but NOT the shared data_substrate (consumed from dependencies/).
+        recurse="$(toml_get "products.$p" recurse_submodules)"
+        if [ "$recurse" = "false" ]; then
+            clone_latest "$repo" "$ELOQDB_PROJECTS/$p" "$branch" 1
+        else
+            clone_product "$repo" "$ELOQDB_PROJECTS/$p" "$branch"
+        fi
         ds="$(toml_get "products.$p" with_data_store)"; export ELOQDB_WITH_DATA_STORE="${ds:-$DEF_DS}"
         ls="$(toml_get "products.$p" with_log_state)"; export ELOQDB_WITH_LOG_STATE="${ls:-$DEF_LS}"
         eloqdb_log "=== LAYER 3: product $p ==="

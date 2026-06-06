@@ -16,7 +16,7 @@ unset _eloqdb_self
 export ELOQDB_PREFIX="$ELOQDB_ROOT/install"          # the shared local prefix (replaces /usr/local)
 export ELOQDB_DEPS="$ELOQDB_ROOT/dependencies"       # dependency source checkouts
 export ELOQDB_THIRD_PARTY="$ELOQDB_DEPS/third_party" # pinned upstream deps
-export ELOQDB_SUBMODULES="$ELOQDB_DEPS/sub_modules"  # eloqdata/ltzhang forks (latest)
+export ELOQDB_SUBMODULES="$ELOQDB_DEPS/sub_modules"  # eloqdata forks of upstream (latest)
 export ELOQDB_DATA_SUBSTRATE="$ELOQDB_DEPS/data_substrate"  # the shared core (its own top-level checkout)
 export ELOQDB_DATA_SUBSTRATE_REPO="${ELOQDB_DATA_SUBSTRATE_REPO:-https://github.com/eloqdata/tx_service.git}"
 export ELOQDB_DATA_SUBSTRATE_BRANCH="${ELOQDB_DATA_SUBSTRATE_BRANCH:-}"   # empty => remote default (unless ELOQDB_MOD_BRANCH exists)
@@ -42,7 +42,18 @@ export LD_LIBRARY_PATH="$ELOQDB_PREFIX/lib:$ELOQDB_PREFIX/lib64${LD_LIBRARY_PATH
 export PATH="$ELOQDB_PREFIX/bin:$PATH"
 
 # Parallelism for builds (override by exporting ELOQDB_JOBS before sourcing).
-export ELOQDB_JOBS="${ELOQDB_JOBS:-$(nproc)}"
+# Capped for memory: the heavy C++ TUs (MariaDB sql/, abseil, tx_service) can use multiple GB
+# each, so a full-core -j OOM-kills the build on modest-RAM hosts. Default to min(nproc, mem/2GB,
+# 8); lower ELOQDB_JOBS to 4 if a build still dies suddenly.
+if [ -z "${ELOQDB_JOBS:-}" ]; then
+    _eloqdb_nproc="$(nproc)"
+    _eloqdb_memgb="$(awk '/MemTotal/{printf "%d", $2/1024/1024/2}' /proc/meminfo 2>/dev/null || echo 8)"
+    ELOQDB_JOBS=$_eloqdb_nproc
+    [ "$_eloqdb_memgb" -gt 0 ] && [ "$_eloqdb_memgb" -lt "$ELOQDB_JOBS" ] && ELOQDB_JOBS=$_eloqdb_memgb
+    [ "$ELOQDB_JOBS" -gt 8 ] && ELOQDB_JOBS=8
+    unset _eloqdb_nproc _eloqdb_memgb
+fi
+export ELOQDB_JOBS
 
 # Common CMake flags every dependency uses to install into the shared prefix, no sudo.
 export ELOQDB_CMAKE_ARGS="-DCMAKE_INSTALL_PREFIX=$ELOQDB_PREFIX -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DBUILD_SHARED_LIBS=ON"
