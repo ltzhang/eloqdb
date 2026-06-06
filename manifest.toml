@@ -1,0 +1,35 @@
+# EloqDB product manifest — the source of truth for which products are built.
+#
+# Versioning policy (see CLAUDE.md):
+#   - eloqdata/ and ltzhang/ repos  -> always latest (default-branch HEAD)
+#   - all other third-party repos   -> pinned (see scripts/deps/*.sh / BUILD-PLAN.md)
+#
+# `scripts/build.sh` clones only enabled products into projects/, builds the union of their
+# dependencies once into install/, then builds each product via its adapter.
+
+[defaults]
+# Default backend feature flags applied to a product unless it overrides them.
+# EloqStore data store + RocksDB log state => no cloud stack (AWS/GCP/rocksdb-cloud).
+with_data_store = "ELOQDSS_ELOQSTORE"
+with_log_state  = "ROCKSDB"
+
+[products.eloqkv]
+enabled = true
+repo    = "https://github.com/eloqdata/eloqkv.git"
+branch  = ""                     # empty => remote default (build prefers ELOQDB_MOD_BRANCH if present)
+build   = "cmake"
+adapter = "scripts/projects/eloqkv.sh"
+
+[products.eloqsql]
+enabled = false
+repo    = "https://github.com/eloqdata/eloqsql.git"
+branch  = ""                     # empty => remote default (prefers ELOQDB_MOD_BRANCH)
+build   = "cmake"
+adapter = "scripts/projects/eloqsql.sh"
+
+[products.eloqdoc]
+enabled = false
+repo    = "https://github.com/eloqdata/eloqdoc.git"
+branch  = ""                     # empty => remote default (prefers ELOQDB_MOD_BRANCH)
+build   = "scons"                # MongoDB 4.0.3 fork: SCons + Python 2.7 (provisioned by adapter)
+adapter = "scripts/projects/eloqdoc.sh"
