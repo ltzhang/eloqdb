@@ -15,21 +15,21 @@ with_log_state  = "ROCKSDB"
 
 [products.eloqkv]
 enabled = true
-repo    = "https://github.com/eloqdata/eloqkv.git"
+repo    = "git@github.com:eloqdata/eloqkv.git"
 branch  = ""                     # empty => remote default (build prefers ELOQDB_MOD_BRANCH if present)
 build   = "cmake"
 adapter = "scripts/projects/eloqkv.sh"
 
 [products.eloqsql]
 enabled = false
-repo    = "https://github.com/eloqdata/eloqsql.git"
+repo    = "git@github.com:eloqdata/eloqsql.git"
 branch  = ""                     # empty => remote default (prefers ELOQDB_MOD_BRANCH)
 build   = "cmake"
 adapter = "scripts/projects/eloqsql.sh"
 
 [products.eloqdoc]
 enabled = false
-repo    = "https://github.com/eloqdata/eloqdoc.git"
+repo    = "git@github.com:eloqdata/eloqdoc.git"
 branch  = ""                     # empty => remote default (prefers ELOQDB_MOD_BRANCH)
 build   = "scons"                # MongoDB 4.0.3 fork: SCons + Python 2.7 (provisioned by adapter)
 adapter = "scripts/projects/eloqdoc.sh"
@@ -41,7 +41,7 @@ adapter = "scripts/projects/eloqdoc.sh"
 # the submodule paths. Our edits to eloquentdb itself go on ELOQDB_MOD_BRANCH (lintao-mod).
 [products.eloquentdb]
 enabled            = false
-repo               = "https://github.com/eloqdata/eloquentdb.git"
+repo               = "git@github.com:eloqdata/eloquentdb.git"
 branch             = ""          # empty => remote default (prefers ELOQDB_MOD_BRANCH/lintao-mod)
 build              = "cmake"
 adapter            = "scripts/projects/eloquentdb.sh"
