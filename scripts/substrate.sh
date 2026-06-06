@@ -53,9 +53,11 @@ check_deps_layer() {
 _clear_stale() { local d=$1; { [ -L "$d" ] || { [ -e "$d" ] && [ ! -d "$d/.git" ]; }; } && rm -rf "$d"; return 0; }
 _flat_latest() {  # url dest [branch]   eloqdata -> latest (prefers ELOQDB_MOD_BRANCH if present)
     local url=$1 dest=$2 branch=${3:-}
+    url="$(eloq_ssh_url "$url")"   # eloqdata -> SSH (reach lintao-mod); third-party untouched
     branch="$(eloq_pick_branch "$url" "$branch")"
     _clear_stale "$dest"
     if [ -d "$dest/.git" ]; then
+        git -C "$dest" remote set-url origin "$url"   # migrate existing https origin -> SSH
         git -C "$dest" fetch origin
         [ -n "$branch" ] && git -C "$dest" checkout "$branch" 2>/dev/null || true
         git -C "$dest" pull --ff-only 2>/dev/null || true

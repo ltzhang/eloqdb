@@ -30,9 +30,6 @@ WITH_LOG_STATE="${ELOQDB_WITH_LOG_STATE:-ROCKSDB}"
 # vendored headers. Safe now that abseil is a single shared checkout.
 export CPATH="$ELOQDB_PREFIX/include${CPATH:+:$CPATH}"
 
-# Submodule URLs in eloquentdb are SSH (git@github.com:…); use https so the build needs no keys.
-to_https() { printf '%s' "$1" | sed -E 's#^git@github\.com:#https://github.com/#'; }
-
 # The shared core (built inline by eloquentdb's CMake against dependencies/data_substrate).
 eloq_ensure_data_substrate
 mapfile -t DIR_FLAGS < <(eloq_substrate_dir_flags)   # ELOQ_ABSEIL_DIR/TXLOG/ELOQSTORE/DATA_SUBSTRATE_DIR
@@ -44,7 +41,9 @@ gm="$SRC/.gitmodules"
 for name in $(git config -f "$gm" --get-regexp '^submodule\..*\.path$' \
                 | sed -E 's/^submodule\.(.*)\.path .*/\1/'); do
     path="$(git config -f "$gm" --get "submodule.$name.path")"
-    url="$(to_https "$(git config -f "$gm" --get "submodule.$name.url")")"
+    # eloquentdb's .gitmodules engine URLs are already SSH (git@…); eloq_ssh_url keeps them SSH
+    # (and would convert any https eloqdata/ URL too) so clone_product can reach lintao-mod.
+    url="$(eloq_ssh_url "$(git config -f "$gm" --get "submodule.$name.url")")"
     base="$(basename "$path")"
 
     [ "$base" = "data_substrate" ] && continue   # handled via eloq_substrate_dir_flags

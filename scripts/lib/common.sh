@@ -19,6 +19,19 @@ run_with_retry() {
 }
 
 # clone_latest <url> <dest> [branch]
+# eloq_ssh_url <url>
+# Rewrite an Eloq-owned GitHub repo URL (eloqdata/ or ltzhang/) to SSH form so clone/pull/push use
+# the user's SSH key (needed to reach the lintao-mod branches). Third-party repos are left as-is
+# (https, read-only, no auth). No-op on URLs that are already SSH or not eloqdata/ltzhang.
+eloq_ssh_url() {
+    local url=$1
+    case "$url" in
+        https://github.com/eloqdata/*|https://github.com/ltzhang/*)
+            url="git@github.com:${url#https://github.com/}" ;;
+    esac
+    printf '%s' "$url"
+}
+
 # For eloqdata repos: clone (or fast-forward) to the latest HEAD of the
 # eloq_pick_branch <url> [fallback]
 # Echo ELOQDB_MOD_BRANCH if the remote has it (our changes live there), else the fallback
@@ -39,11 +52,13 @@ eloq_pick_branch() {
 # Used for umbrella repos (e.g. eloquentdb) whose submodules we override with our own checkouts.
 clone_latest() {
     local url=$1 dest=$2 branch=${3:-} skip_submodules=${4:-0}
+    url="$(eloq_ssh_url "$url")"
     branch="$(eloq_pick_branch "$url" "$branch")"
     local recurse=(--recurse-submodules)
     [ "$skip_submodules" = 1 ] && recurse=()
     if [ -d "$dest/.git" ]; then
         eloqdb_log "update (latest): $dest"
+        git -C "$dest" remote set-url origin "$url"   # migrate existing https origin -> SSH
         git -C "$dest" fetch "${recurse[@]}" origin
         if [ -n "$branch" ]; then git -C "$dest" checkout "$branch"; fi
         git -C "$dest" pull "${recurse[@]}" --ff-only
@@ -64,9 +79,11 @@ clone_latest() {
 # into the product tree.
 clone_product() {
     local url=$1 dest=$2 branch=${3:-}
+    url="$(eloq_ssh_url "$url")"
     branch="$(eloq_pick_branch "$url" "$branch")"
     if [ -d "$dest/.git" ]; then
         eloqdb_log "update product (latest): $dest"
+        git -C "$dest" remote set-url origin "$url"   # migrate existing https origin -> SSH
         git -C "$dest" fetch origin
         [ -n "$branch" ] && git -C "$dest" checkout "$branch"
         git -C "$dest" pull --ff-only 2>/dev/null || true
@@ -101,9 +118,12 @@ eloq_link_path() {
 }
 
 # clone_pinned <url> <dest> <ref>
-# For third-party git deps: clone and check out an exact pinned tag/branch/commit.
+# For third-party git deps: clone and check out an exact pinned tag/branch/commit. (Third-party
+# stays https; eloq_ssh_url only rewrites eloqdata/ltzhang, so it's a no-op here unless a pinned
+# eloqdata fork is ever added.)
 clone_pinned() {
     local url=$1 dest=$2 ref=$3
+    url="$(eloq_ssh_url "$url")"
     if [ -d "$dest/.git" ]; then
         eloqdb_log "update (pinned $ref): $dest"
         git -C "$dest" fetch origin --tags
