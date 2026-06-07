@@ -79,21 +79,19 @@ if [ ${#ENABLED[@]} -gt 0 ]; then
     [ ${#ENABLED[@]} -gt 1 ] && eloqdb_warn "multiple products enabled; shared data_substrate baked with $_p0's module ($DEPS_MODULE) — others get its metric labels"
 fi
 
-# --- which cloud deps do the enabled products need? (granular) --------------
-# AWS S3 is required by eloqstore (ELOQSTORE backend) AND DynamoDB/S3 backends.
-# GCP only for Bigtable/GCS. rocksdb-cloud only for cloud-rocksdb backends.
-CLOUD_FLAGS=()
-_need_aws=0; _need_gcp=0; _need_rc=0
-for p in "${ENABLED[@]}"; do
-    ds="$(toml_get "products.$p" with_data_store)"; ds="${ds:-$DEF_DS}"
-    ls="$(toml_get "products.$p" with_log_state)"; ls="${ls:-$DEF_LS}"
-    case "$ds$ls" in *ELOQSTORE*|*DYNAMODB*|*S3*) _need_aws=1 ;; esac
-    case "$ds$ls" in *BIGTABLE*|*GCS*) _need_gcp=1 ;; esac
-    case "$ds$ls" in *ROCKSDB_CLOUD*) _need_rc=1 ;; esac
-done
-[ "$_need_aws" = 1 ] && CLOUD_FLAGS+=(--with-aws)
-[ "$_need_gcp" = 1 ] && CLOUD_FLAGS+=(--with-gcp)
-[ "$_need_rc"  = 1 ] && CLOUD_FLAGS+=(--with-rocksdb-cloud)
+# --- cloud deps: one master switch (ELOQDB_WITH_CLOUD), no per-backend granularity ----------
+# ON  -> pull the whole cloud stack (aws-sdk-cpp + google-cloud-cpp + rocksdb-cloud) via deps.sh's
+#        --with-cloud shorthand, AND compile EloqStore's optional S3/GCS cloud-storage backend
+#        (-DWITH_CLOUD_STORAGE=ON, gated on lintao-mod via ELOQSTORE_WITH_CLOUD).
+# OFF -> pull none of it; EloqStore's cloud-storage backend compiles to a stub (no AWS SDK link).
+#        A manifest that selects an explicit cloud backend (DYNAMODB/BIGTABLE/ELOQDSS_ROCKSDB_CLOUD_*)
+#        needs ELOQDB_WITH_CLOUD=1 — those backends have no local-only fallback.
+CLOUD_FLAGS=(); WITH_CLOUD_STORAGE="OFF"
+if [ "$ELOQDB_WITH_CLOUD" = 1 ]; then
+    CLOUD_FLAGS=(--with-cloud)
+    WITH_CLOUD_STORAGE="ON"
+fi
+export ELOQDB_WITH_CLOUD_STORAGE="$WITH_CLOUD_STORAGE"
 TEST_FLAG=""; [ "$WITH_TESTS" = 1 ] && TEST_FLAG="--with-tests"
 
 # AWS components: eloqstore needs s3; widen for DynamoDB.

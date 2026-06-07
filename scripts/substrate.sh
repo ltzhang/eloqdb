@@ -20,6 +20,10 @@ source "$HERE/lib/common.sh"
 
 DS_DATA_STORE="${ELOQDB_WITH_DATA_STORE:-ELOQDSS_ELOQSTORE}"
 DS_MODULE="${ELOQDB_ELOQ_MODULE:-}"
+# EloqStore's cloud (S3/GCS) object-storage backend is compile-time optional (lintao-mod:
+# -DWITH_CLOUD_STORAGE, gates ELOQSTORE_WITH_CLOUD + the AWSSDK link). build.sh derives this
+# from ELOQDB_WITH_CLOUD; default OFF (local-only) when invoked standalone.
+DS_WITH_CLOUD_STORAGE="${ELOQDB_WITH_CLOUD_STORAGE:-OFF}"
 
 # data_substrate's (recursive) submodules are FLATTENED to depth-2 under dependencies/ — each is
 # cloned ONCE to a flat location and symlinked into the deep path the build expects. This keeps all
@@ -38,10 +42,13 @@ check_deps_layer() {
     [ -e "$ELOQDB_PREFIX/include/mimalloc.h" ] || [ -e "$ELOQDB_PREFIX/include/mimalloc-2.1/mimalloc.h" ] || missing+=(mimalloc)
     [ -n "$(ls "$ELOQDB_PREFIX"/lib/libbrpc* 2>/dev/null)" ] || missing+=(brpc)
     [ -n "$(ls "$ELOQDB_PREFIX"/lib/librocksdb* 2>/dev/null)" ] || missing+=(rocksdb)
-    # eloqstore (EloqStore backend) hard-requires the AWS S3 SDK.
+    # AWS S3 SDK: required for DynamoDB/S3 backends always, and for EloqStore only when its
+    # optional cloud-storage backend is being compiled in (DS_WITH_CLOUD_STORAGE=ON).
     case "$DS_DATA_STORE" in
-        *ELOQSTORE*|*DYNAMODB*|*S3*)
+        *DYNAMODB*|*S3*)
             [ -n "$(ls "$ELOQDB_PREFIX"/lib/libaws-cpp-sdk-s3* 2>/dev/null)" ] || missing+=("aws-sdk(s3)") ;;
+        *ELOQSTORE*)
+            [ "$DS_WITH_CLOUD_STORAGE" = "ON" ] && { [ -n "$(ls "$ELOQDB_PREFIX"/lib/libaws-cpp-sdk-s3* 2>/dev/null)" ] || missing+=("aws-sdk(s3)"); } ;;
     esac
     if [ ${#missing[@]} -gt 0 ]; then
         eloqdb_die "deps layer incomplete (missing: ${missing[*]}). Run: scripts/build.sh --deps-only"
@@ -58,7 +65,7 @@ _flat_latest() {  # url dest [branch]   eloqdata -> latest (prefers ELOQDB_MOD_B
     _clear_stale "$dest"
     if [ -d "$dest/.git" ]; then
         git -C "$dest" remote set-url origin "$url"   # migrate existing https origin -> SSH
-        git -C "$dest" fetch origin
+        run_with_retry git -C "$dest" fetch origin
         [ -n "$branch" ] && git -C "$dest" checkout "$branch" 2>/dev/null || true
         git -C "$dest" pull --ff-only 2>/dev/null || true
     else
@@ -82,8 +89,14 @@ _link() {  # deep-path  flat-checkout   (idempotent symlink)
 # Clone data_substrate top-level only (submodules are flattened separately, not inited here).
 clone_data_substrate() {
     local ds="$ELOQDB_DATA_SUBSTRATE"
-    if [ -d "$ds/.git" ] && ! git -C "$ds" remote get-url origin 2>/dev/null | grep -q "$ELOQDB_DATA_SUBSTRATE_REPO"; then
-        eloqdb_warn "data_substrate origin differs from $ELOQDB_DATA_SUBSTRATE_REPO — re-cloning"
+    # _flat_latest rewrites eloqdata/ltzhang origins to SSH form (eloq_ssh_url), so an existing
+    # checkout's origin won't textually match $ELOQDB_DATA_SUBSTRATE_REPO (https) — compare against
+    # both the SSH-rewritten and original forms to avoid spuriously wiping a healthy clone.
+    local origin; origin="$(git -C "$ds" remote get-url origin 2>/dev/null || true)"
+    local want_ssh; want_ssh="$(eloq_ssh_url "$ELOQDB_DATA_SUBSTRATE_REPO")"
+    if [ -d "$ds/.git" ] && [ -n "$origin" ] \
+       && [ "$origin" != "$want_ssh" ] && [ "$origin" != "$ELOQDB_DATA_SUBSTRATE_REPO" ]; then
+        eloqdb_warn "data_substrate origin ($origin) differs from $want_ssh — re-cloning"
         rm -rf "$ds"
     fi
     _flat_latest "$ELOQDB_DATA_SUBSTRATE_REPO" "$ds" "$ELOQDB_DATA_SUBSTRATE_BRANCH"
@@ -133,7 +146,7 @@ build_data_substrate() {
     # One shared lib bakes in ONE product identity (metrics/branches gated on ELOQ_MODULE_*).
     local module_def=""
     [ -n "$DS_MODULE" ] && module_def="-DCMAKE_CXX_FLAGS=-D${DS_MODULE}"
-    eloqdb_log "building data_substrate (data_store=$DS_DATA_STORE, module=${DS_MODULE:-none})"
+    eloqdb_log "building data_substrate (data_store=$DS_DATA_STORE, module=${DS_MODULE:-none}, cloud_storage=$DS_WITH_CLOUD_STORAGE)"
     # Dependency dirs point at the single shared checkouts (no symlinks); GIT_SUBMODULE=OFF so the
     # build never pulls submodules.
     local dir_flags; mapfile -t dir_flags < <(eloq_substrate_dir_flags)
@@ -141,7 +154,7 @@ build_data_substrate() {
         -DCMAKE_PREFIX_PATH="$ELOQDB_PREFIX" -DCMAKE_INSTALL_PREFIX="$ELOQDB_PREFIX" \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo -DGIT_SUBMODULE=OFF \
         "${dir_flags[@]}" \
-        -DWITH_DATA_STORE="$DS_DATA_STORE" $module_def
+        -DWITH_DATA_STORE="$DS_DATA_STORE" -DWITH_CLOUD_STORAGE="$DS_WITH_CLOUD_STORAGE" $module_def
     cmake --build "$bld" -j "$ELOQDB_JOBS"
     cmake --install "$bld"
     dep_mark_done data_substrate

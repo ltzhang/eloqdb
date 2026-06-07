@@ -21,10 +21,27 @@ export ELOQDB_DATA_SUBSTRATE="$ELOQDB_DEPS/data_substrate"  # the shared core (i
 export ELOQDB_DATA_SUBSTRATE_REPO="${ELOQDB_DATA_SUBSTRATE_REPO:-https://github.com/eloqdata/tx_service.git}"
 export ELOQDB_DATA_SUBSTRATE_BRANCH="${ELOQDB_DATA_SUBSTRATE_BRANCH:-}"   # empty => remote default (unless ELOQDB_MOD_BRANCH exists)
 
+# SSH keepalive for git: this host's connections to github.com occasionally go silent mid-transfer
+# (TCP stays ESTABLISHED, zero throughput, no FIN/RST) — plain `ssh`/`git fetch` then hangs forever.
+# ServerAlive* makes ssh probe and give up on a dead connection within ~30s so git fails fast and
+# can be retried, instead of blocking the build indefinitely.
+export GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -o ConnectTimeout=15 -o ServerAliveInterval=10 -o ServerAliveCountMax=3}"
+
 # Modifications branch: our changes to Eloq-owned repos live on this branch IN the eloqdata repos
 # (no separate forks). The build prefers it when the remote has it, else falls back to the default
 # branch. This keeps eloqdata default branches pristine while isolating our changes.
 export ELOQDB_MOD_BRANCH="${ELOQDB_MOD_BRANCH:-lintao-mod}"
+
+# Cloud opt-in — single all-or-nothing switch, no separate aws/gcp/rocksdb-cloud flags:
+#   0 (default) = local-only build. Pulls none of aws-sdk-cpp / google-cloud-cpp / rocksdb-cloud,
+#                 and EloqStore's cloud (S3/GCS) object-storage backend compiles out to a stub
+#                 (ELOQSTORE_WITH_CLOUD off, via -DWITH_CLOUD_STORAGE=OFF on lintao-mod).
+#   1            = pulls the whole cloud stack (deps.sh --with-cloud) and enables EloqStore's
+#                 cloud-backed storage. Also required for DynamoDB / Bigtable / cloud-RocksDB
+#                 backends — they have no local-only fallback. Override by exporting
+#                 ELOQDB_WITH_CLOUD before sourcing.
+export ELOQDB_WITH_CLOUD="${ELOQDB_WITH_CLOUD:-0}"
+
 export ELOQDB_BUILD="$ELOQDB_ROOT/build"             # all build trees
 export ELOQDB_PROJECTS="$ELOQDB_ROOT/projects"       # product checkouts (optional)
 

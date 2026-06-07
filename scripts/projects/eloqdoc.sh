@@ -50,7 +50,8 @@ cmake -S "$SRC/src/mongo/db/modules/eloq" -B "$SRC/src/mongo/db/modules/eloq/bui
     "${DS_DIR_FLAGS[@]}" \
     -DCMAKE_CXX_STANDARD=17 -DCMAKE_BUILD_TYPE=RelWithDebInfo \
     -DEXT_TX_PROC_ENABLED=ON -DELOQ_MODULE_ENABLED=ON -DSTATISTICS=ON -DUSE_ASAN=OFF \
-    -DWITH_LOG_STATE="$WITH_LOG_STATE" -DWITH_DATA_STORE="$WITH_DATA_STORE"
+    -DWITH_LOG_STATE="$WITH_LOG_STATE" -DWITH_DATA_STORE="$WITH_DATA_STORE" \
+    -DWITH_CLOUD_STORAGE="${ELOQDB_WITH_CLOUD_STORAGE:-OFF}"
 cmake --build "$SRC/src/mongo/db/modules/eloq/build" -j "$ELOQDB_JOBS"
 cmake --install "$SRC/src/mongo/db/modules/eloq/build"
 

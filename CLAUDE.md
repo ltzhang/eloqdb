@@ -113,15 +113,41 @@ The full inventory, versions, sources, and build order live in **`BUILD-PLAN.md`
 ## Minimal default build (feature-gated cloud deps)
 
 The default config is `WITH_DATA_STORE=ELOQDSS_ELOQSTORE` + `WITH_LOG_STATE=ROCKSDB`. Heavy cloud
-libraries are pulled in **only** when an enabled product+backend needs them, computed per backend
-by the orchestrator (`--with-aws` / `--with-gcp` / `--with-rocksdb-cloud`):
+libraries are an all-or-nothing bundle gated by a single top-level switch, **`ELOQDB_WITH_CLOUD`**
+in `env.sh` (default `0` — local-only build, no AWS/GCP at all):
 
-| Dependency           | Default | Required when |
-|----------------------|---------|---------------|
-| rocksdb              | Keep    | `WITH_LOG_STATE=ROCKSDB` (default) |
-| **aws-sdk-cpp (s3)** | **Keep** | **EloqStore (default)**, DynamoDB, any S3 backend — eloqstore hard-requires `find_package(AWSSDK COMPONENTS s3)`. Scoped to just the needed components via `ELOQDB_AWS_COMPONENTS` (default `s3`). |
-| rocksdb-cloud        | Drop    | `ELOQDSS_ROCKSDB_CLOUD_S3` / `_GCS` backends |
-| google-cloud-cpp     | Drop    | `BIGTABLE`, or any cloud-GCS backend |
+| Dependency           | `ELOQDB_WITH_CLOUD=0` (default) | `ELOQDB_WITH_CLOUD=1` |
+|----------------------|---------------------------------|------------------------|
+| rocksdb              | Keep (always — `WITH_LOG_STATE=ROCKSDB` default) | Keep |
+| aws-sdk-cpp (s3)     | Drop | Built — components scoped via `ELOQDB_AWS_COMPONENTS` (default `s3`, widens for DynamoDB) |
+| google-cloud-cpp     | Drop | Built |
+| rocksdb-cloud        | Drop | Built |
+
+`scripts/build.sh` turns the single switch into `deps.sh --with-cloud` (its existing shorthand for
+`--with-aws --with-gcp --with-rocksdb-cloud`) — no separate per-backend granularity; **on** pulls
+the whole stack, **off** pulls none of it.
+
+### `ELOQDB_WITH_CLOUD` — local-only vs. cloud build (env.sh)
+
+EloqStore's S3/GCS object-storage backend (`StoreMode::Cloud`) is **runtime-optional** —
+[eloq_store.cpp](https://github.com/eloqdata/eloqstore/blob/main/src/eloq_store.cpp) only spins up
+`CloudStorageService` when configured for cloud mode — but upstream it was wired as a **hard
+compile-time** dependency (`find_package(AWSSDK REQUIRED COMPONENTS s3)`, with
+`storage/cloud_backend.cpp` directly `#include <aws/s3/...>`). On `lintao-mod` we gated this
+behind a new `WITH_CLOUD_STORAGE` CMake option (default **ON**, matching upstream): when **OFF**,
+`cloud_backend.cpp` compiles to a small stub (`CreateBackend()` → `LOG(FATAL)`, never reached in a
+local-only deployment) instead of linking the AWS S3 client, defined via `ELOQSTORE_WITH_CLOUD`
+(patched in both `eloqdata/eloqstore` — its own `CMakeLists.txt` — and `eloqdata/tx_service`'s
+`store_handler/eloq_data_store_service/build_eloq_store.cmake`, the path the umbrella actually
+uses via `WITH_TXSERVICE`).
+
+`env.sh` exports `ELOQDB_WITH_CLOUD` (default `0`): `scripts/build.sh` derives both
+`deps.sh --with-cloud` and `-DWITH_CLOUD_STORAGE=ON|OFF` (passed through to `substrate.sh`) from
+it directly — one switch controls the whole cloud stack and EloqStore's cloud-storage backend
+together. **Caveat:** a manifest entry that explicitly selects `DYNAMODB` / `BIGTABLE` /
+`ELOQDSS_ROCKSDB_CLOUD_*` has no local-only fallback — it needs `ELOQDB_WITH_CLOUD=1` too, or the
+deps layer won't have what its `find_package` calls require. Set `export ELOQDB_WITH_CLOUD=1`
+before sourcing `env.sh` to build the full cloud stack and enable EloqStore's cloud-backed storage.
 
 Backend options: `WITH_DATA_STORE` ∈ {`ELOQDSS_ELOQSTORE`, `ELOQDSS_ROCKSDB`,
 `ELOQDSS_ROCKSDB_CLOUD_S3/_GCS`, `DYNAMODB`, `BIGTABLE`}; `WITH_LOG_STATE` ∈ {`MEMORY`, `ROCKSDB`,
@@ -175,6 +201,14 @@ vendored SCons 2.5.0 + Python 2.7**.
   `lintao-mod` (tx_service, eloqkv, eloqsql, eloqdoc) to make every in-tree submodule path
   overridable; eloqstore defaults `GIT_SUBMODULE=OFF`. (Remaining symlinks are intra-dependency
   artifacts — rocksdb `.so` version links, grpc/liburing repo symlinks — not our wiring.)
+- **`ELOQDB_WITH_CLOUD` (local-only by default — see "Minimal default build" above):** required a *new* `lintao-mod`
+  branch on `eloqdata/eloqstore` (it had none before — only consumed inline via tx_service's
+  `build_eloq_store.cmake`) carrying the `WITH_CLOUD_STORAGE` gate in its own `CMakeLists.txt` plus
+  the `ELOQSTORE_WITH_CLOUD`-guarded stub in `storage/cloud_backend.cpp`; mirrored in
+  `eloqdata/tx_service`'s `lintao-mod` (`build_eloq_store.cmake`). **Not yet pushed** — until then
+  `eloq_pick_branch` falls back to eloqstore's default branch, which still hard-links AWS SDK
+  (`ELOQDB_WITH_CLOUD=0` would then fail at the `aws-sdk(s3)` deps-layer check or AWSSDK
+  `find_package`, depending on which path resolves first).
 - **Builds (default ELOQSTORE + ROCKSDB backend):**
   - **eloqkv** — builds end-to-end ✅ (0 symlinks, 0 submodule pulls).
   - **eloqsql** — builds end-to-end ✅ (`mariadbd`/`mysqld`). Needs system `bison` (apt) and the

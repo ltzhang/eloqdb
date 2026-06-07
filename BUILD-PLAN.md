@@ -45,7 +45,7 @@ symlinks, no submodule recursion**.
 | prometheus-cpp   | v1.1.0 (pin)   | jupp0r / third_party       | shared          | metrics |
 | Catch2           | v3.3.2 (pin)   | upstream / third_party     | shared (test)   | only if tests enabled |
 | FakeIt           | pin TBD        | upstream / third_party     | shared (test)   | floats on HEAD → pick a commit to pin; header copy needs prefix patch |
-| aws-sdk-cpp      | 1.11.446       | upstream / third_party     | **REQUIRED (s3)** | eloqstore hard-requires `find_package(AWSSDK COMPONENTS s3)`; not droppable for the default backend. Build only needed components via `ELOQDB_AWS_COMPONENTS` (default `s3`) |
+| aws-sdk-cpp      | 1.11.446       | upstream / third_party     | optional/cloud  | eloqstore's S3/GCS cloud-storage backend is compile-time gated behind `WITH_CLOUD_STORAGE` (lintao-mod, upstream default ON); the umbrella drives it from `ELOQDB_WITH_CLOUD` (default `0` => OFF, dropped — local-only build, no AWS SDK). When ON, build only needed components via `ELOQDB_AWS_COMPONENTS` (default `s3`) |
 | google-cloud-cpp | v2.24.0        | upstream / third_party     | optional/cloud  | DROP by default; only BIGTABLE / cloud-GCS |
 | rocksdb-cloud    | **latest**     | **eloqdata** / sub_modules | optional/cloud  | DROP by default; needs aws + gcp |
 | data_substrate   | latest         | **eloqdata/tx_service** / data_substrate | core | meta-repo (named *tx_service*); cloned **top-level only** |
