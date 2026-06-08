@@ -6,7 +6,7 @@
 /dependencies/sub_modules/
 /dependencies/data_substrate/
 /.pyenv/
-
+/.venv-eloqdoc/
 # Keep the dependency directories themselves (with their .gitkeep) but ignore contents.
 !/dependencies/third_party/.gitkeep
 !/dependencies/sub_modules/.gitkeep

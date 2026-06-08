@@ -153,6 +153,7 @@ build_data_substrate() {
     cmake -S "$ELOQDB_DATA_SUBSTRATE" -B "$bld" \
         -DCMAKE_PREFIX_PATH="$ELOQDB_PREFIX" -DCMAKE_INSTALL_PREFIX="$ELOQDB_PREFIX" \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo -DGIT_SUBMODULE=OFF \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
         "${dir_flags[@]}" \
         -DWITH_DATA_STORE="$DS_DATA_STORE" -DWITH_CLOUD_STORAGE="$DS_WITH_CLOUD_STORAGE" $module_def
     cmake --build "$bld" -j "$ELOQDB_JOBS"
