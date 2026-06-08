@@ -28,10 +28,17 @@ of it is in place, some is still being migrated (see **Status**).
    third-party library is checked out exactly once into `dependencies/` (classified by origin —
    see below) and built once into the shared prefix `install/`. No dependency is buried as a
    nested submodule under a product or under another dependency.
-2. **No directory symlinks.** The build must not stitch the source tree together with symbolic
-   links to directories. Products and the core find the shared sources in `dependencies/` and the
-   shared libraries in `install/` **directly** — via `CMAKE_PREFIX_PATH`, explicit source paths,
-   or build-script variables — never through a symlinked submodule path.
+2. **Avoid directory symlinks as build wiring.** The build should not *routinely* stitch the
+   source tree together with symbolic links to directories — products and the core find the
+   shared sources in `dependencies/` and the shared libraries in `install/` **directly**, via
+   `CMAKE_PREFIX_PATH`, explicit source paths, or build-script variables, not through a
+   symlinked submodule path. The judicious exception: when upstream *hardcodes* an in-tree path
+   (e.g. eloqdoc's vendored MongoDB `#include`s ~76 references to
+   `mongo/db/modules/eloq/data_substrate/...`, baked into both Eloq and core mongo sources, with
+   no override hook), a single targeted symlink from that path to the shared `dependencies/`
+   checkout is the pragmatic fix — see `link_data_substrate_into_eloq_module` in
+   `scripts/projects/eloqdoc.sh`. Reach for this only when a real path/flag override isn't
+   possible; default to the direct-reference approach everywhere else.
 3. **No submodule pulling during the build.** The build never runs `git submodule update --init`
    and never clones with `--recurse-submodules`. Each repo is cloned **top-level only**; the
    submodule content it expects is supplied from `dependencies/`. Any CMake/SCons logic that would
@@ -171,36 +178,47 @@ binary. Upstream it declares each engine as a pinned git submodule; here those a
 its adapter points each engine at the umbrella's own `projects/<engine>` checkout and the shared
 core, driven by eloquentdb's `.gitmodules`, following latest.
 
-## eloqdoc build constraint: locked to MongoDB 4.0.3 + SCons + Python 2
+## eloqdoc build constraint: locked to MongoDB 4.0.3 + SCons (now on Python 3)
 
 eloqdoc is a MongoDB fork **licensing-locked to MongoDB 4.0.3** — the last AGPL release. MongoDB
 relicensed to SSPL on 2018-10-16, so every later version (4.2+), including the modern Bazel build,
-is SSPL and **cannot be used in an open-source project**. We stay on the 4.0.x era: **SCons +
-vendored SCons 2.5.0 + Python 2.7**.
+is SSPL and **cannot be used in an open-source project**. We stay on the 4.0.x era's **SCons**
+build — but, as of `lintao-mod`, ported to **Python 3** (see "Decision" below).
 
 - **Do not convert the MongoDB server build to CMake.** It is upstream MongoDB (~503 `env.Library`
   targets, a custom `scons/libdeps.py` graph, 48 `.idl` codegen files, ~25 vendored libs) — a
   person-months port that wouldn't even remove the Python 2 dependency (the IDL compiler is Python
   regardless). Only the Eloq-authored module (`src/mongo/db/modules/eloq/`) is — and stays — CMake.
-- The real blocker is **Python 2 obsolescence** (gone from Ubuntu 24.04). **Decision: A now, B
-  later.**
-  - **Option A — isolate Python 2.7 (NOW).** Provision a hermetic Python 2.7 (`pyenv 2.7.18`) into
-    a local prefix — sudo-free. The `eloqdoc.sh` adapter activates Py2.7 + vendored SCons, then
-    builds against the shared prefix. Upstream build stays intact.
-  - **Option B — port build scripts to Python 3 (LATER).** `2to3` over `SConstruct` +
-    `buildscripts/` + the IDL compiler, bump vendored SCons 2.5 → 3.x/4.x. Stays on AGPL 4.0.3 and
-    removes Python 2 permanently. (Cannot copy MongoDB 4.4's own Py3 port — that's SSPL.)
+- The real blocker was **Python 2 obsolescence** (gone from Ubuntu 24.04). Two options were
+  weighed: **Option A** — isolate a hermetic Python 2.7 (`pyenv`) and keep the vendored SCons
+  2.5.0 untouched; or **Option B** — port the build scripts themselves to Python 3 and drop the
+  vendored SCons for a modern one. **Decision: B, done.** `2to3`-style fixes (str/bytes,
+  `dict.iteritems`→`.items`, `print` statements, the removed `'rU'` file mode, …) were applied
+  across `SConstruct`, `scons/`, `scripts/buildscripts/` (incl. the IDL compiler) and the
+  generator scripts (`generate_error_codes.py`, `generate_stop_words.py`, the FTS unicode
+  generators, …) on `lintao-mod`; the vendored SCons 2.5.0 engine was dropped in favor of a
+  pip-installed modern SCons (4.10.x) running under a hermetic Python 3 venv
+  (`scripts/projects/eloqdoc.sh`'s `ensure_eloqdoc_venv`, `.venv-eloqdoc/`). `generate_error_codes.py`
+  needs `Cheetah.Template`; the original `Cheetah` is Python-2-only and unmaintained, so the venv
+  installs **Cheetah3** (its actively-maintained Python 3 drop-in fork) instead. This removes the
+  Python 2 dependency permanently while staying on AGPL 4.0.3. (Cannot copy MongoDB 4.4's own Py3
+  port — that's SSPL.)
 
 ## Status
 
-- **No directory symlinks in the build wiring (target met).** `substrate.sh` fetches every core
-  sub-dep as a single real checkout under `dependencies/` and passes `eloq_substrate_dir_flags`
-  (`-DELOQ_ABSEIL_DIR`, `-DELOQ_TXLOG_PROTO_DIR`, `-DELOQSTORE_PARENT_DIR`, `-DDATA_SUBSTRATE_DIR`).
-  `clone_product` clones products top-level + their project-local submodules but **never**
-  `data_substrate`, with no recursive pull of the shared core. The eloqdata CMake was patched on
-  `lintao-mod` (tx_service, eloqkv, eloqsql, eloqdoc) to make every in-tree submodule path
-  overridable; eloqstore defaults `GIT_SUBMODULE=OFF`. (Remaining symlinks are intra-dependency
-  artifacts — rocksdb `.so` version links, grpc/liburing repo symlinks — not our wiring.)
+- **Directory symlinks in the build wiring kept to a single, judicious exception.**
+  `substrate.sh` fetches every core sub-dep as a single real checkout under `dependencies/` and
+  passes `eloq_substrate_dir_flags` (`-DELOQ_ABSEIL_DIR`, `-DELOQ_TXLOG_PROTO_DIR`,
+  `-DELOQSTORE_PARENT_DIR`, `-DDATA_SUBSTRATE_DIR`). `clone_product` clones products top-level +
+  their project-local submodules but **never** `data_substrate`, with no recursive pull of the
+  shared core. The eloqdata CMake was patched on `lintao-mod` (tx_service, eloqkv, eloqsql,
+  eloqdoc) to make every in-tree submodule path overridable; eloqstore defaults
+  `GIT_SUBMODULE=OFF`. The **one** sanctioned exception is eloqdoc's
+  `link_data_substrate_into_eloq_module` (in `scripts/projects/eloqdoc.sh`): vendored MongoDB +
+  the Eloq module hardcode `mongo/db/modules/eloq/data_substrate/...` across ~76 `#include`s with
+  no override hook, so that single in-tree path is symlinked to the shared `dependencies/`
+  checkout — see rule 2 above. (Remaining symlinks beyond that are intra-dependency artifacts —
+  rocksdb `.so` version links, grpc/liburing repo symlinks — not our wiring.)
 - **`ELOQDB_WITH_CLOUD` (local-only by default — see "Minimal default build" above):** required a *new* `lintao-mod`
   branch on `eloqdata/eloqstore` (it had none before — only consumed inline via tx_service's
   `build_eloq_store.cmake`) carrying the `WITH_CLOUD_STORAGE` gate in its own `CMakeLists.txt` plus
@@ -213,17 +231,29 @@ vendored SCons 2.5.0 + Python 2.7**.
   - **eloqkv** — builds end-to-end ✅ (0 symlinks, 0 submodule pulls).
   - **eloqsql** — builds end-to-end ✅ (`mariadbd`/`mysqld`). Needs system `bison` (apt) and the
     adapter adds `-I$ELOQDB_PREFIX/include` so MariaDB's `sql/` finds brpc's `<bthread/…>` headers.
-  - **eloqdoc** — the Eloq cmake module (incl. inline data_substrate) builds ✅. The MongoDB SCons
-    server stage is **ON HOLD** pending a Python 2-vs-3 decision (Option A vs B above): it needs
-    the Py2.7 toolchain (`bz2`/`_sqlite3`/`ctypes` + `Cheetah`), and we may instead port the build
-    scripts to Python 3 (Option B). The symlink/data_substrate side is already done.
+  - **eloqdoc** — builds end-to-end ✅, including the MongoDB SCons server stage
+    (`scons install-core` produces `install/bin/eloqdoc`/`eloqdoc-cli`, reporting
+    `db version v0.2.6 (compatible with MongoDB version v4.0.3)`, `modules: eloq`). Got there via
+    the Python 3 port (Option B, see "eloqdoc build constraint" above) plus three SConscript fixes
+    in the Eloq module: (1) `SYSTEM_INCLUDE_PATH`/`CPPPATH` entries that pointed at empty
+    in-tree-submodule placeholders (`store_handler/eloq_data_store_service/eloqstore`,
+    `tx_service/tx-log-protos`) instead of the umbrella's real sibling checkouts
+    (`$ELOQ_DATA_SUBSTRATE_ROOT/{eloqstore,tx-log-protos}`); (2) `-DCMAKE_POSITION_INDEPENDENT_CODE=ON`
+    on the shared `data_substrate` build (`substrate.sh`) — its static archives are linked into
+    eloqdoc's `.so` and need `-fPIC`; (3) missing link libraries for EloqStore's own dependency
+    graph (`-leloqstore` — built inline by `data_substrate` but not installed to the shared
+    prefix, so it's linked straight from `build/substrate/data_substrate/` — plus
+    `-lprometheus-cpp-{core,pull} -luring -lcurl -ljsoncpp -lzstd -lcrypto`), all ordered **after**
+    `-ldata_substrate` since the linker only pulls archive members for already-pending undefined
+    symbols (eloqstore's are referenced from `data_substrate`'s `store_handler`).
   - **eloquentdb** — builds end-to-end ✅ (unified `eloqdb` binary = eloqkv + eloqsql + core).
     Engines pointed at `projects/<engine>` via `-DELOQKV_DIR`/`-DELOQSQL_DIR`; needed three real
     (non-symlink) fixes on `lintao-mod`: eloqsql feature_summary non-fatal in library mode (CURL
     false-flag), `CPATH=install/include` in the adapter (eloqkv_lib loses the prefix include in
     converged mode → glog), and C++20 (eloqkv headers use `std::atomic<shared_ptr>`).
 - **System build-tools are apt-installed by the user** (bison, flex, …), not built into `install/`
-  — that prefix holds libraries only. The lone sanctioned local toolchain is the hermetic
-  Python 2.7 (pyenv) for eloqdoc.
+  — that prefix holds libraries only. The lone sanctioned local toolchain is eloqdoc's hermetic
+  Python 3 build venv (`.venv-eloqdoc/` — modern SCons + Cheetah3 + the IDL compiler's deps; see
+  `ensure_eloqdoc_venv` in `scripts/projects/eloqdoc.sh`).
 - **Build parallelism is memory-capped** (`env.sh`: `ELOQDB_JOBS=min(nproc, ½·RAM_GB, 8)`) so the
   heavy C++ TUs don't OOM-kill the build; lower `ELOQDB_JOBS=4` if a build still dies suddenly.

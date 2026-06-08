@@ -8,7 +8,7 @@ prefix (`install/`), and produces the product binaries — without touching syst
 |---------|-----------------|----------|
 | **eloqkv** | Redis | `eloqkv` |
 | **eloqsql** | MariaDB | `mariadbd` / `mysqld` |
-| **eloqdoc** | MongoDB 4.0.3 | `mongod` *(needs Python 2.7 — see notes)* |
+| **eloqdoc** | MongoDB 4.0.3 | `mongod` *(SCons + a hermetic Python 3 venv — see notes)* |
 | **eloquentdb** | unified engine | `eloqdb` (eloqkv + eloqsql in one binary) |
 
 ## 1. Prerequisites
@@ -21,7 +21,7 @@ sudo apt-get install -y \
     build-essential g++ make cmake ninja-build pkg-config git curl m4 patchelf ccache bison flex \
     libssl-dev gnutls-dev zlib1g-dev libgflags-dev libleveldb-dev libsnappy-dev liblz4-dev \
     libzstd-dev libbz2-dev libcurl4-openssl-dev libc-ares-dev libuv1-dev libboost-context-dev \
-    libjsoncpp-dev libreadline-dev libncurses-dev libsqlite3-dev libffi-dev
+    libjsoncpp-dev libreadline-dev libncurses-dev
 ```
 
 You also need a **GitHub SSH key**: EloqDB clones the Eloq repositories (`eloqdata/*`) over SSH.
@@ -82,10 +82,17 @@ Build subsets or iterate on one layer:
 - **Versioning.** Eloq repositories (`eloqdata/*`) are built from the latest of their default
   branch; all other third-party dependencies are pinned to known-good versions.
 
-- **eloqdoc / Python 2.7.** eloqdoc is a MongoDB 4.0.3 fork (the last AGPL release), whose build
-  requires Python 2.7. Its adapter provisions a hermetic Python 2.7 via `pyenv` automatically — no
-  system Python changes — so the extra `libsqlite3-dev`/`libbz2-dev`/`libffi-dev` packages above
-  are needed for that interpreter. The MongoDB server build is experimental.
+- **eloqdoc / Python 3 build venv.** eloqdoc is a MongoDB 4.0.3 fork (the last AGPL release) built
+  with SCons. Its upstream build scripts targeted Python 2.7 (now gone from Ubuntu 24.04), so on
+  `lintao-mod` they were ported to Python 3 (str/bytes, `dict` iterators, the removed `'rU'` file
+  mode, …) and the vendored SCons 2.5.0 engine was swapped for a modern, pip-installed SCons. The
+  adapter (`scripts/projects/eloqdoc.sh`) provisions a hermetic venv at `.venv-eloqdoc/`
+  automatically — no system Python changes — installing `scons`, `Cheetah3` (the maintained Python
+  3 fork of the `Cheetah` templating engine `generate_error_codes.py` needs), and the IDL
+  compiler's other deps (`pyyaml`, `jinja2`, `packaging`). No extra system packages are required
+  for it (the old pyenv-based Python 2.7 path needed `libsqlite3-dev`/`libbz2-dev`/`libffi-dev` —
+  no longer necessary). `scons install-core` builds the MongoDB server end-to-end into
+  `install/bin/{eloqdoc,eloqdoc-cli}`.
 
 For design rationale, the full dependency inventory, and build internals, see
 [CLAUDE.md](CLAUDE.md) and [BUILD-PLAN.md](BUILD-PLAN.md).

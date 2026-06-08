@@ -2,7 +2,8 @@
 
 The concrete inventory behind `CLAUDE.md`: what to build, which version, from where, and in what
 order. Strategy and the target architecture (one checkout per dep under `dependencies/`, **no
-directory symlinks, no submodule recursion, no stray pulls**) live in `CLAUDE.md`.
+build-wiring symlinks beyond a single judicious exception, no submodule recursion, no stray
+pulls**) live in `CLAUDE.md`.
 
 ## System prerequisites (assumed present, NOT built — see README)
 
@@ -21,8 +22,9 @@ System libs: `libssl-dev`, `zlib1g-dev`, `libgflags-dev`, `libleveldb-dev`, `lib
   the build.
 
 Each dependency is a **single checkout** in the bucket shown under `dependencies/`, built once into
-`install/`, and consumed directly from there (CMake `find_package` / `CMAKE_PREFIX_PATH`) — **no
-symlinks, no submodule recursion**.
+`install/`, and consumed directly from there (CMake `find_package` / `CMAKE_PREFIX_PATH`) — no
+build-wiring symlinks (eloqdoc's single sanctioned exception aside — see `CLAUDE.md`), no
+submodule recursion.
 
 | Dependency       | Version        | Source / bucket            | Tier            | Notes |
 |------------------|----------------|----------------------------|-----------------|-------|
@@ -86,25 +88,34 @@ data_substrate      (← brpc, braft, protobuf, abseil, rocksdb, mimalloc, glog,
   # with their own WITH_DATA_STORE, against this same shared checkout.
 
 # Tier 6 — products
-eloqkv (cmake) | eloqsql (cmake) | eloqdoc (scons+py2) | eloquentdb (cmake)
+eloqkv (cmake) | eloqsql (cmake) | eloqdoc (scons+py3) | eloquentdb (cmake)
 ```
 
 ## Open items
 
-1. ~~Eliminate symlinks + submodule recursion~~ — **done.** `substrate.sh` fetches real checkouts
-   and passes `eloq_substrate_dir_flags`; `clone_product` does top-level + project-local submodules
-   only (never data_substrate). eloqdata CMake patched on `lintao-mod` (tx_service, eloqkv, eloqsql,
-   eloqdoc). Only intra-dependency symlinks remain (rocksdb `.so` links, etc.).
-2. **eloqdoc Python 2.7 toolchain** — rebuild the pyenv 2.7 with `bz2`/`_sqlite3`/`ctypes` (after
-   apt `libbz2-dev libsqlite3-dev libffi-dev`) and `pip2 install Cheetah` (+ other MongoDB-4.0.3
-   build Python deps). The Eloq cmake module already builds.
+1. ~~Eliminate symlinks + submodule recursion~~ — **done** (with one judicious, documented
+   exception). `substrate.sh` fetches real checkouts and passes `eloq_substrate_dir_flags`;
+   `clone_product` does top-level + project-local submodules only (never data_substrate). eloqdata
+   CMake patched on `lintao-mod` (tx_service, eloqkv, eloqsql, eloqdoc). The sole build-wiring
+   symlink is eloqdoc's `link_data_substrate_into_eloq_module` (forced by ~76 hardcoded
+   `mongo/db/modules/eloq/data_substrate/...` `#include`s upstream — see `CLAUDE.md` rule 2);
+   everything else remaining is an intra-dependency artifact (rocksdb `.so` links, etc.).
+2. ~~eloqdoc Python 2.7 toolchain~~ — **done, superseded.** Rather than provisioning a hermetic
+   Python 2.7 (pyenv), the build scripts themselves were ported to Python 3 on `lintao-mod`
+   (`SConstruct`, `scons/`, `scripts/buildscripts/` incl. the IDL compiler, the codegen scripts),
+   the vendored SCons 2.5.0 was replaced with a modern pip-installed SCons, and `Cheetah3` (the
+   maintained Python 3 fork of `Cheetah`, needed by `generate_error_codes.py`) is installed into
+   a hermetic venv (`.venv-eloqdoc/`, provisioned by `ensure_eloqdoc_venv` in
+   `scripts/projects/eloqdoc.sh`). `scons install-core` now builds `mongod` end-to-end — see
+   "eloqdoc build constraint" in `CLAUDE.md`.
 3. **FakeIt pin** — choose a commit/tag to pin (currently floats on HEAD).
 4. **eloquentdb** — build the unified binary (engines already wired to projects/<engine>).
 5. **Definition of done** — each enabled product builds against the shared prefix + a smoke test.
-   (eloqkv ✅, eloqsql ✅ end-to-end; eloqdoc cmake module ✅, server pending Python toolchain.)
+   (eloqkv ✅, eloqsql ✅, eloqdoc ✅ — including the MongoDB SCons server stage — all end-to-end.)
 
 ## Extra system prerequisites surfaced during builds
 
 Beyond the README list, the following were needed on the build host (apt, user-installed):
-`bison` (eloqsql/MariaDB parser); `libbz2-dev`, `libsqlite3-dev`, `libffi-dev` (eloqdoc's
-Python 2.7 modules). `flex` may also be required by MariaDB.
+`bison` (eloqsql/MariaDB parser). `flex` may also be required by MariaDB. (`libsqlite3-dev` /
+`libffi-dev` were needed only for the now-abandoned pyenv-built-Python-2.7 path — eloqdoc's
+Python 3 venv uses the system interpreter and needs neither.)
