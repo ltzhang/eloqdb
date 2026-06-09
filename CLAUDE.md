@@ -93,7 +93,7 @@ patches that make them consume `dependencies/` and stop pulling submodules — l
 **`lintao-mod` branch inside each eloqdata repo**, keeping their default branches pristine. The
 build prefers `ELOQDB_MOD_BRANCH` (`lintao-mod`) when the remote has it, else the default branch
 (`eloq_pick_branch` in `scripts/lib/common.sh`); the working tree may be left on a local
-`lintao-mod` until the branch is pushed. The umbrella itself (`ltzhang/eloqdb`) is the sole
+`lintao-mod` until the branch is pushed. The umbrella itself (`ltzhang/eloq_build_env`) is the sole
 `ltzhang/` repo — original orchestration code, not a fork — and our work on it lives on its
 `main` branch.
 
@@ -104,7 +104,7 @@ build prefers `ELOQDB_MOD_BRANCH` (`lintao-mod`) when the remote has it, else th
   those pins are informational and we deliberately follow HEAD. Covers the products
   (`eloqdata/{eloqkv,eloqsql,eloqdoc,eloquentdb}`) and the forks + core (`eloqdata/{brpc, braft,
   glog, mimalloc, cuckoofilter, rocksdb-cloud, tx_service, eloqstore, log_service,
-  tx-log-protos}`). The `ltzhang/eloqdb` umbrella follows the same rule.
+  tx-log-protos}`). The `ltzhang/eloq_build_env` umbrella follows the same rule.
 - **All other third-party repos → pinned** to known-good versions (listed in `BUILD-PLAN.md`), so
   an upstream release can't break the build.
 
@@ -255,5 +255,5 @@ build — but, as of `lintao-mod`, ported to **Python 3** (see "Decision" below)
   — that prefix holds libraries only. The lone sanctioned local toolchain is eloqdoc's hermetic
   Python 3 build venv (`.venv-eloqdoc/` — modern SCons + Cheetah3 + the IDL compiler's deps; see
   `ensure_eloqdoc_venv` in `scripts/projects/eloqdoc.sh`).
-- **Build parallelism is memory-capped** (`env.sh`: `ELOQDB_JOBS=min(nproc, ½·RAM_GB, 8)`) so the
+- **Build parallelism is memory-capped** (`env.sh`: `ELOQDB_JOBS=min(nproc, ½·RAM_GB)`) so the
   heavy C++ TUs don't OOM-kill the build; lower `ELOQDB_JOBS=4` if a build still dies suddenly.

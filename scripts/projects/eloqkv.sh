@@ -6,9 +6,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/../../env.sh"
 source "$HERE/../lib/common.sh"
 
-SRC="$ELOQDB_PROJECTS/eloqkv"
-BLD="$ELOQDB_BUILD/eloqkv"
-[ -d "$SRC" ] || eloqdb_die "eloqkv not cloned at $SRC (run build.sh first)"
+SRC="${ELOQKV_DIR:-$ELOQDB_PROJECTS/eloqkv}"
+BLD="${ELOQKV_BUILD_DIR:-$ELOQDB_BUILD/eloqkv}"
+[ -d "$SRC" ] || eloqdb_die "eloqkv not found at $SRC (run build.sh or set ELOQKV_DIR)"
 
 WITH_DATA_STORE="${ELOQDB_WITH_DATA_STORE:-ELOQDSS_ELOQSTORE}"
 WITH_LOG_STATE="${ELOQDB_WITH_LOG_STATE:-ROCKSDB}"

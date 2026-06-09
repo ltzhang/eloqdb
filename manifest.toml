@@ -1,7 +1,7 @@
 # EloqDB product manifest — the source of truth for which products are built.
 #
 # Versioning policy (see CLAUDE.md):
-#   - eloqdata/ repos (and the ltzhang/eloqdb umbrella) -> always latest (default-branch HEAD)
+#   - eloqdata/ repos (and the ltzhang/eloq_build_env umbrella) -> always latest (default-branch HEAD)
 #   - all other third-party repos   -> pinned (see scripts/deps/*.sh / BUILD-PLAN.md)
 #
 # `scripts/build.sh` clones only enabled products into projects/, builds the union of their

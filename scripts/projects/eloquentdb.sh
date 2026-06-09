@@ -15,9 +15,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/../../env.sh"
 source "$HERE/../lib/common.sh"
 
-SRC="$ELOQDB_PROJECTS/eloquentdb"
-BLD="$ELOQDB_BUILD/eloquentdb"
-[ -d "$SRC" ] || eloqdb_die "eloquentdb not cloned at $SRC (run build.sh first)"
+SRC="${ELOQUENTDB_DIR:-$ELOQDB_PROJECTS/eloquentdb}"
+BLD="${ELOQUENTDB_BUILD_DIR:-$ELOQDB_BUILD/eloquentdb}"
+[ -d "$SRC" ] || eloqdb_die "eloquentdb not found at $SRC (run build.sh or set ELOQUENTDB_DIR)"
 [ -f "$SRC/.gitmodules" ] || eloqdb_die "eloquentdb has no .gitmodules at $SRC"
 
 WITH_DATA_STORE="${ELOQDB_WITH_DATA_STORE:-ELOQDSS_ELOQSTORE}"

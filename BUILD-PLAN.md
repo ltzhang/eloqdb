@@ -17,7 +17,7 @@ System libs: `libssl-dev`, `zlib1g-dev`, `libgflags-dev`, `libleveldb-dev`, `lib
 
 **Version policy by owner:**
 - **`eloqdata/` repos → latest** (default-branch HEAD, preferring `lintao-mod`), ignoring any
-  pinned commit/tag. ("Version" shows `latest`.) The `ltzhang/eloqdb` umbrella follows the same rule.
+  pinned commit/tag. ("Version" shows `latest`.) The `ltzhang/eloq_build_env` umbrella follows the same rule.
 - **All other third-party repos → pinned** to the version shown, so upstream releases can't break
   the build.
 

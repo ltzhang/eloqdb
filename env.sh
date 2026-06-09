@@ -42,8 +42,8 @@ export ELOQDB_MOD_BRANCH="${ELOQDB_MOD_BRANCH:-lintao-mod}"
 #                 ELOQDB_WITH_CLOUD before sourcing.
 export ELOQDB_WITH_CLOUD="${ELOQDB_WITH_CLOUD:-0}"
 
-export ELOQDB_BUILD="$ELOQDB_ROOT/build"             # all build trees
-export ELOQDB_PROJECTS="$ELOQDB_ROOT/projects"       # product checkouts (optional)
+export ELOQDB_BUILD="${ELOQDB_BUILD:-$ELOQDB_ROOT/build}"          # all build trees (pre-settable)
+export ELOQDB_PROJECTS="${ELOQDB_PROJECTS:-$ELOQDB_ROOT/projects}" # product checkouts (pre-settable)
 
 mkdir -p "$ELOQDB_PREFIX" "$ELOQDB_THIRD_PARTY" "$ELOQDB_SUBMODULES" \
          "$ELOQDB_BUILD" "$ELOQDB_PROJECTS"
@@ -60,14 +60,13 @@ export PATH="$ELOQDB_PREFIX/bin:$PATH"
 
 # Parallelism for builds (override by exporting ELOQDB_JOBS before sourcing).
 # Capped for memory: the heavy C++ TUs (MariaDB sql/, abseil, tx_service) can use multiple GB
-# each, so a full-core -j OOM-kills the build on modest-RAM hosts. Default to min(nproc, mem/2GB,
-# 8); lower ELOQDB_JOBS to 4 if a build still dies suddenly.
+# each, so a full-core -j OOM-kills the build on modest-RAM hosts. Default to min(nproc, mem/2GB);
+# lower ELOQDB_JOBS to 4 if a build still dies suddenly.
 if [ -z "${ELOQDB_JOBS:-}" ]; then
     _eloqdb_nproc="$(nproc)"
-    _eloqdb_memgb="$(awk '/MemTotal/{printf "%d", $2/1024/1024/2}' /proc/meminfo 2>/dev/null || echo 8)"
+    _eloqdb_memgb="$(awk '/MemTotal/{printf "%d", $2/1024/1024/2}' /proc/meminfo 2>/dev/null || echo "$_eloqdb_nproc")"
     ELOQDB_JOBS=$_eloqdb_nproc
     [ "$_eloqdb_memgb" -gt 0 ] && [ "$_eloqdb_memgb" -lt "$ELOQDB_JOBS" ] && ELOQDB_JOBS=$_eloqdb_memgb
-    [ "$ELOQDB_JOBS" -gt 8 ] && ELOQDB_JOBS=8
     unset _eloqdb_nproc _eloqdb_memgb
 fi
 export ELOQDB_JOBS

@@ -12,8 +12,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/../../env.sh"
 source "$HERE/../lib/common.sh"
 
-SRC="$ELOQDB_PROJECTS/eloqdoc"
-[ -d "$SRC" ] || eloqdb_die "eloqdoc not cloned at $SRC (run build.sh first)"
+SRC="${ELOQDOC_DIR:-$ELOQDB_PROJECTS/eloqdoc}"
+[ -d "$SRC" ] || eloqdb_die "eloqdoc not found at $SRC (run build.sh or set ELOQDOC_DIR)"
 
 WITH_DATA_STORE="${ELOQDB_WITH_DATA_STORE:-ELOQDSS_ELOQSTORE}"
 WITH_LOG_STATE="${ELOQDB_WITH_LOG_STATE:-ROCKSDB}"
