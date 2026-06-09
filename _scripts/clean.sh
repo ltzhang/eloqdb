@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Clean EloqDB build artifacts. There is no `make clean` — this is the umbrella equivalent.
+# Clean eloq_build_env build artifacts. There is no `make clean` — this is the umbrella equivalent.
 #
 #   scripts/clean.sh                 # build trees only  (keep install/ libs + sources)  [default]
 #   scripts/clean.sh install         # build/ + install/ (force a full rebuild; keep sources)

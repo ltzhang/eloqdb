@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Layer 1 of the EloqDB build: third-party + eloqdata-fork dependencies.
+# Layer 1 of the eloq_build_env build: third-party + eloqdata-fork dependencies.
 # Internal script — invoked automatically by build.sh.
 set -euo pipefail
 
@@ -10,7 +10,7 @@ if [ -z "${ELOQDB_ORCHESTRATED:-}" ]; then
     cat <<'EOF'
 
 ================================================================
-  EloqDB Build System
+  eloq_build_env
   https://github.com/ltzhang/eloq_build_env
 ================================================================
 

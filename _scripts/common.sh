@@ -1,4 +1,4 @@
-# Shared helpers for EloqDB build scripts. Source after env.sh.
+# Shared helpers for eloq_build_env scripts. Source after env.sh.
 # shellcheck shell=bash
 
 set -euo pipefail

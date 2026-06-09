@@ -1,4 +1,4 @@
-# EloqDB product manifest — the source of truth for which products are built.
+# eloq_build_env product manifest — the source of truth for which products are built.
 #
 # Versioning policy (see CLAUDE.md):
 #   - eloqdata/ repos (and the ltzhang/eloq_build_env umbrella) -> always latest (default-branch HEAD)

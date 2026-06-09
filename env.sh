@@ -1,4 +1,4 @@
-# EloqDB shared build environment.
+# eloq_build_env shared build environment.
 # Usage:  source env.sh
 # Defines the local, sudo-free install prefix that every dependency installs into
 # and every product builds against. No system directories are touched.

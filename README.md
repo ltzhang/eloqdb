@@ -1,6 +1,6 @@
-# EloqDB
+# eloq_build_env
 
-EloqDB is a single-directory, **sudo-free** umbrella build for the Eloq product family. From one
+eloq_build_env is a single-directory, **sudo-free** umbrella build for the Eloq product family. From one
 checkout it fetches each product and its shared dependencies, builds everything into a local
 prefix (`install/`), and produces the product binaries — without touching system directories.
 
@@ -13,7 +13,7 @@ prefix (`install/`), and produces the product binaries — without touching syst
 
 ## 1. Prerequisites
 
-Install the system toolchain and libraries once (EloqDB builds the heavy/pinned libraries itself,
+Install the system toolchain and libraries once (eloq_build_env builds the heavy/pinned libraries itself,
 but relies on these being present):
 
 ```bash
@@ -24,7 +24,7 @@ sudo apt-get install -y \
     libjsoncpp-dev libreadline-dev libncurses-dev
 ```
 
-You also need a **GitHub SSH key**: EloqDB clones the Eloq repositories (`eloqdata/*`) over SSH.
+You also need a **GitHub SSH key**: eloq_build_env clones the Eloq repositories (`eloqdata/*`) over SSH.
 Third-party dependencies are fetched over https and need no credentials.
 
 ## 2. Build

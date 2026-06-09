@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# EloqDB umbrella build orchestrator — a 3-layer build:
+# eloq_build_env umbrella build orchestrator — a 3-layer build:
 #
 #   layer 1: deps           (third-party + eloqdata forks)   scripts/deps.sh
 #   layer 2: data_substrate (the shared Eloq core)           scripts/substrate.sh

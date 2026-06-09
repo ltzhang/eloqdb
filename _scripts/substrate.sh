@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Layer 2 of the EloqDB build: the shared Eloq core (data_substrate).
+# Layer 2 of the eloq_build_env build: the shared Eloq core (data_substrate).
 # Internal script — invoked automatically by build.sh.
 set -euo pipefail
 
@@ -10,7 +10,7 @@ if [ -z "${ELOQDB_ORCHESTRATED:-}" ]; then
     cat <<'EOF'
 
 ================================================================
-  EloqDB Build System
+  eloq_build_env
   https://github.com/ltzhang/eloq_build_env
 ================================================================
 
