@@ -1,22 +1,35 @@
 #!/usr/bin/env bash
 # Layer 2 of the EloqDB build: the shared Eloq core (data_substrate).
-#
-# Layering:  deps (layer 1)  ->  data_substrate (layer 2)  ->  projects (layer 3)
-# This layer depends on layer 1 (the shared deps in the prefix) and is depended on by the
-# products. It is built ONCE, standalone, and shared by every product.
-#
-# data_substrate (eloqdata/tx_service) is a meta-repo. Its submodules are flattened to depth-2
-# under dependencies/ (one checkout each, shared where duplicated) and symlinked into place.
-#
-# Usage:  scripts/substrate.sh
-# Env:
-#   ELOQDB_WITH_DATA_STORE   backend (default ELOQDSS_ELOQSTORE)
-#   ELOQDB_ELOQ_MODULE       product identity baked in (e.g. ELOQ_MODULE_ELOQKV)
+# Internal script — invoked automatically by build.sh.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Guard: this is an internal layer script. Direct invocation is unsupported.
+if [ -z "${ELOQDB_ORCHESTRATED:-}" ]; then
+    cat <<'EOF'
+
+================================================================
+  EloqDB Build System
+  https://github.com/ltzhang/eloq_build_env
+================================================================
+
+  substrate.sh is an internal build layer — use build.sh instead:
+
+    build.sh [--data-substrate] [--fetch-only] [OPTIONS]
+    build.sh --help
+
+  Advanced: to bypass this check (e.g. for debugging):
+    ELOQDB_ORCHESTRATED=1 _scripts/substrate.sh
+
+================================================================
+
+EOF
+    exit 1
+fi
+
 source "$HERE/../env.sh"
-source "$HERE/lib/common.sh"
+source "$HERE/common.sh"
 
 DS_DATA_STORE="${ELOQDB_WITH_DATA_STORE:-ELOQDSS_ELOQSTORE}"
 DS_MODULE="${ELOQDB_ELOQ_MODULE:-}"
@@ -51,7 +64,7 @@ check_deps_layer() {
             [ "$DS_WITH_CLOUD_STORAGE" = "ON" ] && { [ -n "$(ls "$ELOQDB_PREFIX"/lib/libaws-cpp-sdk-s3* 2>/dev/null)" ] || missing+=("aws-sdk(s3)"); } ;;
     esac
     if [ ${#missing[@]} -gt 0 ]; then
-        eloqdb_die "deps layer incomplete (missing: ${missing[*]}). Run: scripts/build.sh --deps-only"
+        eloqdb_die "deps layer incomplete (missing: ${missing[*]}). Run: build.sh --deps-only"
     fi
 }
 
@@ -142,6 +155,7 @@ fetch_substrate_deps() {
 
 build_data_substrate() {
     if dep_done data_substrate; then eloqdb_log "data_substrate already built"; return 0; fi
+    [ "${ELOQDB_FETCH_ONLY:-0}" = 1 ] && { eloqdb_log "fetch-only: substrate sources ready, skipping build"; return 0; }
     local bld="$ELOQDB_BUILD/substrate/data_substrate"
     # One shared lib bakes in ONE product identity (metrics/branches gated on ELOQ_MODULE_*).
     local module_def=""
@@ -162,7 +176,7 @@ build_data_substrate() {
     eloqdb_log "data_substrate layer complete."
 }
 
-check_deps_layer
+[ "${ELOQDB_FETCH_ONLY:-0}" = 0 ] && check_deps_layer
 # Always ensure the source tree is set up (idempotent), even if the build is cached — products
 # build data_substrate inline against this same checkout.
 clone_data_substrate

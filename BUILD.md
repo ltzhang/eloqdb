@@ -5,7 +5,7 @@ There are two ways to build, depending on your role:
 | Workflow | Who | Entry point |
 |---|---|---|
 | **Single product** | Community / third-party contributors | Clone a product repo, run `./build.sh` |
-| **Full suite** | eloqdata developers | Clone this repo (`eloq_build_env`), run `scripts/build.sh` |
+| **Full suite** | eloqdata developers | Clone this repo (`eloq_build_env`), run `./build.sh --all` |
 
 Both workflows share the same build environment and produce artifacts in the same `install/`
 prefix — there is exactly **one copy of every dependency**, regardless of how many products you build.
@@ -79,37 +79,34 @@ ln -s /path/to/eloq_build_env eloq_env
 git clone git@github.com:ltzhang/eloq_build_env.git eloq_build_env
 cd eloq_build_env
 source env.sh
-./scripts/build.sh                      # deps -> substrate -> all enabled products
+./build.sh --all                        # deps -> substrate -> all enabled products
 ```
 
 Useful flags:
 
 ```bash
-./scripts/build.sh --deps-only          # layer 1: shared deps only
-./scripts/build.sh --data-substrate     # layer 2: shared core only (requires layer 1)
-./scripts/build.sh --product eloqkv     # full stack scoped to one product
+./build.sh --deps-only          # layer 1: shared deps only
+./build.sh --data-substrate     # layer 2: shared core only (requires layer 1)
+./build.sh --product eloqkv     # full stack scoped to one product
+./build.sh --all --fetch-only   # clone/download all sources without building
+./build.sh --help               # full option reference
 ```
 
 Products are cloned into `projects/` automatically from the manifest. Artifacts land in `install/`.
 
 ---
 
-## Committing build.sh to eloqsql / eloquentdb
+## How the two workflows connect
 
-`build.sh` for eloqkv and eloqdoc already lives in their repo roots (on `lintao-mod`).
-For **eloqsql** and **eloquentdb**, copy the template from this repo and commit it:
+Each product's `build.sh` serves dual purpose:
 
-```bash
-# eloqsql
-cp eloq_build_env/scripts/standalone/eloqsql-build.sh eloqsql/build.sh
-chmod +x eloqsql/build.sh
-cd eloqsql && git checkout -b lintao-mod && git add build.sh && git commit -m "build: add standalone build.sh"
+- **Standalone** (Workflow A): detects that `ELOQDB_ROOT` is not yet set, resolves
+  `eloq_build_env`, sources `env.sh`, builds deps + substrate if needed, then builds the product.
+- **Orchestrated** (Workflow B): when called by the umbrella `build.sh`, `ELOQDB_ROOT` is already
+  exported. The product `build.sh` detects this and skips straight to the cmake/scons build —
+  no re-running env setup, deps, or substrate.
 
-# eloquentdb
-cp eloq_build_env/scripts/standalone/eloquentdb-build.sh eloquentdb/build.sh
-chmod +x eloquentdb/build.sh
-cd eloquentdb && git checkout -b lintao-mod && git add build.sh && git commit -m "build: add standalone build.sh"
-```
+There is no separate adapter layer. `manifest.toml` points directly at each product's `build.sh`.
 
 ---
 
@@ -127,5 +124,5 @@ Export overrides before running `build.sh`:
 ```bash
 export ELOQDB_JOBS=4
 export ELOQDB_WITH_CLOUD=1
-./build.sh
+./build.sh --all
 ```

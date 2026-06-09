@@ -2,10 +2,10 @@
 #
 # Versioning policy (see CLAUDE.md):
 #   - eloqdata/ repos (and the ltzhang/eloq_build_env umbrella) -> always latest (default-branch HEAD)
-#   - all other third-party repos   -> pinned (see scripts/deps/*.sh / BUILD-PLAN.md)
+#   - all other third-party repos   -> pinned (see _scripts/deps.sh for versions)
 #
-# `scripts/build.sh` clones only enabled products into projects/, builds the union of their
-# dependencies once into install/, then builds each product via its adapter.
+# `build.sh` clones only enabled products into projects/, builds the union of their
+# dependencies once into install/, then builds each product via its adapter (build.sh).
 
 [defaults]
 # Default backend feature flags applied to a product unless it overrides them.
@@ -18,21 +18,21 @@ enabled = true
 repo    = "git@github.com:eloqdata/eloqkv.git"
 branch  = ""                     # empty => remote default (build prefers ELOQDB_MOD_BRANCH if present)
 build   = "cmake"
-adapter = "scripts/projects/eloqkv.sh"
+adapter = "projects/eloqkv/build.sh"
 
 [products.eloqsql]
 enabled = false
 repo    = "git@github.com:eloqdata/eloqsql.git"
 branch  = ""                     # empty => remote default (prefers ELOQDB_MOD_BRANCH)
 build   = "cmake"
-adapter = "scripts/projects/eloqsql.sh"
+adapter = "projects/eloqsql/build.sh"
 
 [products.eloqdoc]
 enabled = false
 repo    = "git@github.com:eloqdata/eloqdoc.git"
 branch  = ""                     # empty => remote default (prefers ELOQDB_MOD_BRANCH)
 build   = "scons"                # MongoDB 4.0.3 fork: SCons + Python 2.7 (provisioned by adapter)
-adapter = "scripts/projects/eloqdoc.sh"
+adapter = "projects/eloqdoc/build.sh"
 
 # eloquentdb is itself an umbrella: one `eloqdb` binary linking eloqkv + eloqsql + the shared
 # core. Upstream it pulls each engine as a pinned git submodule; here we DON'T — its submodule
@@ -44,5 +44,5 @@ enabled            = false
 repo               = "git@github.com:eloqdata/eloquentdb.git"
 branch             = ""          # empty => remote default (prefers ELOQDB_MOD_BRANCH/lintao-mod)
 build              = "cmake"
-adapter            = "scripts/projects/eloquentdb.sh"
+adapter            = "projects/eloquentdb/build.sh"
 recurse_submodules = false       # umbrella repo: override submodules with our own checkouts

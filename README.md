@@ -8,7 +8,7 @@ prefix (`install/`), and produces the product binaries — without touching syst
 |---------|-----------------|----------|
 | **eloqkv** | Redis | `eloqkv` |
 | **eloqsql** | MariaDB | `mariadbd` / `mysqld` |
-| **eloqdoc** | MongoDB 4.0.3 | `mongod` *(SCons + a hermetic Python 3 venv — see notes)* |
+| **eloqdoc** | MongoDB 4.0.3 | `eloqdoc` / `eloqdoc-cli` *(SCons + a hermetic Python 3 venv — see notes)* |
 | **eloquentdb** | unified engine | `eloqdb` (eloqkv + eloqsql in one binary) |
 
 ## 1. Prerequisites
@@ -31,7 +31,7 @@ Third-party dependencies are fetched over https and need no credentials.
 
 ```bash
 source env.sh          # sets the local install prefix + build environment (run in each shell)
-./scripts/build.sh     # builds the enabled products: deps -> shared core -> products
+./build.sh --all       # deps -> shared core -> all enabled products
 ```
 
 Product binaries land under `build/<product>/`; shared libraries install into `install/`. Keep
@@ -53,10 +53,12 @@ Google Cloud, and RocksDB-Cloud SDKs are built only when a selected backend need
 Build subsets or iterate on one layer:
 
 ```bash
-./scripts/build.sh --product eloqkv     # one product (plus its dependencies)
-./scripts/build.sh --deps-only          # shared third-party + fork dependencies only
-./scripts/build.sh --data-substrate     # the shared Eloq core only
-./scripts/build.sh --with-tests         # also build test deps (Catch2, FakeIt)
+./build.sh --product eloqkv     # one product (plus its dependencies)
+./build.sh --deps-only          # shared third-party + fork dependencies only
+./build.sh --data-substrate     # the shared Eloq core only
+./build.sh --with-tests         # also build test deps (Catch2, FakeIt)
+./build.sh --fetch-only         # clone/download all sources, skip compilation
+./build.sh --help               # full option reference
 ```
 
 ## 4. Layout
@@ -65,10 +67,10 @@ Build subsets or iterate on one layer:
 |------|----------|
 | `manifest.toml` | which products to build + their feature flags |
 | `env.sh` | the shared-prefix build environment (`source` it) |
+| `build.sh` | top-level build orchestrator — the only entry point |
 | `projects/` | product checkouts (created by the build; empty until selected) |
 | `dependencies/` | all shared dependency checkouts (`third_party/`, `sub_modules/`, `data_substrate/`) |
-| `scripts/build.sh` | top-level orchestrator |
-| `scripts/projects/*.sh` | per-product build adapters |
+| `_scripts/` | internal scripts (`deps.sh`, `substrate.sh`, `clean.sh`, `common.sh`) |
 | `build/` | all build trees |
 | `install/` | the local prefix (`include/ lib/ bin/`) — replaces `/usr/local`, no sudo |
 
@@ -77,7 +79,7 @@ Build subsets or iterate on one layer:
 - **Build parallelism / memory.** `env.sh` caps `ELOQDB_JOBS` to `min(nproc, ½·RAM_GB, 8)` because
   the heavy C++ translation units (MariaDB `sql/`, abseil, the core) can each use multiple GB and
   OOM-kill a full-core build. Lower it further if a build still dies suddenly:
-  `ELOQDB_JOBS=4 ./scripts/build.sh`.
+  `ELOQDB_JOBS=4 ./build.sh --all`.
 
 - **Versioning.** Eloq repositories (`eloqdata/*`) are built from the latest of their default
   branch; all other third-party dependencies are pinned to known-good versions.
@@ -86,13 +88,10 @@ Build subsets or iterate on one layer:
   with SCons. Its upstream build scripts targeted Python 2.7 (now gone from Ubuntu 24.04), so on
   `lintao-mod` they were ported to Python 3 (str/bytes, `dict` iterators, the removed `'rU'` file
   mode, …) and the vendored SCons 2.5.0 engine was swapped for a modern, pip-installed SCons. The
-  adapter (`scripts/projects/eloqdoc.sh`) provisions a hermetic venv at `.venv-eloqdoc/`
-  automatically — no system Python changes — installing `scons`, `Cheetah3` (the maintained Python
-  3 fork of the `Cheetah` templating engine `generate_error_codes.py` needs), and the IDL
-  compiler's other deps (`pyyaml`, `jinja2`, `packaging`). No extra system packages are required
-  for it (the old pyenv-based Python 2.7 path needed `libsqlite3-dev`/`libbz2-dev`/`libffi-dev` —
-  no longer necessary). `scons install-core` builds the MongoDB server end-to-end into
-  `install/bin/{eloqdoc,eloqdoc-cli}`.
+  eloqdoc `build.sh` provisions a hermetic venv at `.venv-eloqdoc/` automatically — no system
+  Python changes — installing `scons`, `Cheetah3` (the maintained Python 3 fork of the `Cheetah`
+  templating engine `generate_error_codes.py` needs), and the IDL compiler's other deps (`pyyaml`,
+  `jinja2`, `packaging`). No extra system packages are required. `scons install-core` builds the
+  MongoDB server end-to-end into `install/bin/{eloqdoc,eloqdoc-cli}`.
 
-For design rationale, the full dependency inventory, and build internals, see
-[CLAUDE.md](CLAUDE.md) and [BUILD-PLAN.md](BUILD-PLAN.md).
+For design rationale and build internals, see [CLAUDE.md](CLAUDE.md).

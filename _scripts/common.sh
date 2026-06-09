@@ -7,6 +7,15 @@ eloqdb_log()  { printf '\033[1;34m[eloqdb]\033[0m %s\n' "$*"; }
 eloqdb_warn() { printf '\033[1;33m[eloqdb:warn]\033[0m %s\n' "$*" >&2; }
 eloqdb_die()  { printf '\033[1;31m[eloqdb:error]\033[0m %s\n' "$*" >&2; exit 1; }
 
+eloqdb_banner() {
+    printf '\n'
+    printf '================================================================\n'
+    printf '  EloqDB Build System\n'
+    printf '  https://github.com/ltzhang/eloq_build_env\n'
+    printf '================================================================\n'
+    printf '\n'
+}
+
 # Retry a command a few times (network resilience).
 run_with_retry() {
     local n=0 max=3

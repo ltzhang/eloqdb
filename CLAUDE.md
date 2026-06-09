@@ -13,7 +13,7 @@ Products built under this umbrella:
 |-------------|---------------|--------------|--------------------------|
 | eloqkv      | Redis         | CMake        | `crcspeed` |
 | eloqsql     | MariaDB       | CMake        | `libmariadb`, **vendored `rocksdb`**, `wsrep-lib`, `wolfssl`, `libmarias3`, `columnstore` |
-| eloqdoc     | MongoDB 4.0.3 | SCons + Py2  | vendored MongoDB `src/third_party/*` |
+| eloqdoc     | MongoDB 4.0.3 | SCons + Py3  | vendored MongoDB `src/third_party/*` |
 | eloquentdb  | unified `eloqdb` binary | CMake | links **eloqkv + eloqsql** + the shared core into one executable |
 
 All products share the same core (**`eloqdata/tx_service`**, a.k.a. *data_substrate*) and overlap
@@ -36,8 +36,8 @@ of it is in place, some is still being migrated (see **Status**).
    (e.g. eloqdoc's vendored MongoDB `#include`s ~76 references to
    `mongo/db/modules/eloq/data_substrate/...`, baked into both Eloq and core mongo sources, with
    no override hook), a single targeted symlink from that path to the shared `dependencies/`
-   checkout is the pragmatic fix — see `link_data_substrate_into_eloq_module` in
-   `scripts/projects/eloqdoc.sh`. Reach for this only when a real path/flag override isn't
+   checkout is the pragmatic fix — see `_link_data_substrate_into_eloq_module` in
+   `projects/eloqdoc/build.sh`. Reach for this only when a real path/flag override isn't
    possible; default to the direct-reference approach everywhere else.
 3. **No submodule pulling during the build.** The build never runs `git submodule update --init`
    and never clones with `--recurse-submodules`. Each repo is cloned **top-level only**; the
@@ -57,21 +57,32 @@ Everything is **sudo-free**: nothing is written outside this repo.
 eloqdb/
   manifest.toml      # which products to build, their refs/build-system, feature flags
   env.sh             # `source` it -> exports the shared-prefix contract (ELOQDB_*)
-  projects/          # product checkouts, pulled optionally (empty until selected)
-    eloqkv/  eloqsql/  eloqdoc/  eloquentdb/
+  build.sh           # umbrella orchestrator — the single user-facing entry point
+  projects/          # product checkouts, cloned by the build (gitignored; empty until run)
+    eloqkv/          #   each product repo has a build.sh at its root (see below)
+    eloqsql/
+    eloqdoc/
+    eloquentdb/
   dependencies/      # ALL common deps, one checkout each, classified by origin:
     third_party/     #   upstream used as-is (unmodified)
     sub_modules/     #   upstream forked & modified by eloqdata
     data_substrate/  #   original Eloq projects (Eloq's own code, not a fork)
-  scripts/
-    build.sh         # umbrella orchestrator (deps -> substrate -> products)
-    deps.sh          # builds the shared third-party + eloqdata-fork deps
-    substrate.sh     # builds the shared core (data_substrate)
-    projects/<p>.sh  # per-product build adapter (cmake vs scons)
-    lib/common.sh    # shared helpers (clone, build, link policy)
+  _scripts/          # internal scripts (invoked only by build.sh — not user-facing):
+    deps.sh          #   builds the shared third-party + eloqdata-fork deps
+    substrate.sh     #   builds the shared core (data_substrate)
+    clean.sh         #   removes build trees / install / individual deps
+    common.sh        #   shared helpers (clone, build, link policy, banner)
   build/             # all build trees: build/deps/<dep>, build/<product>
   install/           # shared local prefix (include/ lib/ bin/) — replaces /usr/local, no sudo
 ```
+
+Each product repo (`eloqdata/{eloqkv,eloqsql,eloqdoc,eloquentdb}`, on `lintao-mod`) ships a
+`build.sh` at its root that serves dual purpose:
+- **Orchestrated** (called by umbrella `build.sh` with `ELOQDB_ROOT` already exported): detects
+  the environment is set up and runs only the cmake/scons product build — no env setup, no
+  dep/substrate check.
+- **Standalone** (run directly by a community user): resolves `eloq_build_env`, builds deps +
+  substrate if not cached, then builds the product.
 
 ### Dependency classification (by origin)
 
@@ -92,7 +103,7 @@ products, the core, and the Eloq forks are pulled from `eloqdata/` (e.g. `eloqda
 patches that make them consume `dependencies/` and stop pulling submodules — live on the
 **`lintao-mod` branch inside each eloqdata repo**, keeping their default branches pristine. The
 build prefers `ELOQDB_MOD_BRANCH` (`lintao-mod`) when the remote has it, else the default branch
-(`eloq_pick_branch` in `scripts/lib/common.sh`); the working tree may be left on a local
+(`eloq_pick_branch` in `_scripts/common.sh`); the working tree may be left on a local
 `lintao-mod` until the branch is pushed. The umbrella itself (`ltzhang/eloq_build_env`) is the sole
 `ltzhang/` repo — original orchestration code, not a fork — and our work on it lives on its
 `main` branch.
@@ -105,8 +116,8 @@ build prefers `ELOQDB_MOD_BRANCH` (`lintao-mod`) when the remote has it, else th
   (`eloqdata/{eloqkv,eloqsql,eloqdoc,eloquentdb}`) and the forks + core (`eloqdata/{brpc, braft,
   glog, mimalloc, cuckoofilter, rocksdb-cloud, tx_service, eloqstore, log_service,
   tx-log-protos}`). The `ltzhang/eloq_build_env` umbrella follows the same rule.
-- **All other third-party repos → pinned** to known-good versions (listed in `BUILD-PLAN.md`), so
-  an upstream release can't break the build.
+- **All other third-party repos → pinned** to known-good versions (versions listed inline in
+  `_scripts/deps.sh`), so an upstream release can't break the build.
 
 ## System vs. built dependencies (boundary)
 
@@ -115,7 +126,7 @@ system prerequisites are present** (installed via `apt`, outside this repo's sco
 `make`, `cmake`, `ninja`, `pkg-config`, plus libs like `libssl-dev`, `zlib1g-dev`,
 `libgflags-dev`, `libleveldb-dev`, `libsnappy/lz4/zstd/bz2-dev`. These live in the README's
 prerequisite list. Only the heavy / pinned / forked dependencies are built locally into `install/`.
-The full inventory, versions, sources, and build order live in **`BUILD-PLAN.md`**.
+The full inventory, versions, sources, and build order live in `_scripts/deps.sh`.
 
 ## Minimal default build (feature-gated cloud deps)
 
@@ -130,9 +141,9 @@ in `env.sh` (default `0` — local-only build, no AWS/GCP at all):
 | google-cloud-cpp     | Drop | Built |
 | rocksdb-cloud        | Drop | Built |
 
-`scripts/build.sh` turns the single switch into `deps.sh --with-cloud` (its existing shorthand for
-`--with-aws --with-gcp --with-rocksdb-cloud`) — no separate per-backend granularity; **on** pulls
-the whole stack, **off** pulls none of it.
+`build.sh` turns the single switch into `_scripts/deps.sh --with-cloud` (its existing shorthand
+for `--with-aws --with-gcp --with-rocksdb-cloud`) — no separate per-backend granularity; **on**
+pulls the whole stack, **off** pulls none of it.
 
 ### `ELOQDB_WITH_CLOUD` — local-only vs. cloud build (env.sh)
 
@@ -148,9 +159,10 @@ local-only deployment) instead of linking the AWS S3 client, defined via `ELOQST
 `store_handler/eloq_data_store_service/build_eloq_store.cmake`, the path the umbrella actually
 uses via `WITH_TXSERVICE`).
 
-`env.sh` exports `ELOQDB_WITH_CLOUD` (default `0`): `scripts/build.sh` derives both
-`deps.sh --with-cloud` and `-DWITH_CLOUD_STORAGE=ON|OFF` (passed through to `substrate.sh`) from
-it directly — one switch controls the whole cloud stack and EloqStore's cloud-storage backend
+`env.sh` exports `ELOQDB_WITH_CLOUD` (default `0`): `build.sh` derives both
+`_scripts/deps.sh --with-cloud` and `-DWITH_CLOUD_STORAGE=ON|OFF` (passed through to
+`_scripts/substrate.sh`) from it directly — one switch controls the whole cloud stack and
+EloqStore's cloud-storage backend
 together. **Caveat:** a manifest entry that explicitly selects `DYNAMODB` / `BIGTABLE` /
 `ELOQDSS_ROCKSDB_CLOUD_*` has no local-only fallback — it needs `ELOQDB_WITH_CLOUD=1` too, or the
 deps layer won't have what its `find_package` calls require. Set `export ELOQDB_WITH_CLOUD=1`
@@ -160,22 +172,24 @@ Backend options: `WITH_DATA_STORE` ∈ {`ELOQDSS_ELOQSTORE`, `ELOQDSS_ROCKSDB`,
 `ELOQDSS_ROCKSDB_CLOUD_S3/_GCS`, `DYNAMODB`, `BIGTABLE`}; `WITH_LOG_STATE` ∈ {`MEMORY`, `ROCKSDB`,
 `ROCKSDB_CLOUD_S3/_GCS`}.
 
-## Build flow (`scripts/build.sh`)
+## Build flow (`build.sh`)
 
 1. Read `manifest.toml`; clone enabled products into `projects/` (**top-level only**, no submodule
    recursion).
 2. Build the **union of dependencies** across enabled products+backends **once** into `install/`
-   (cloud stack only if a backend needs it).
-3. Build the shared core (`data_substrate`) once.
-4. Build each enabled product via its adapter (`scripts/projects/<name>.sh`): CMake products get
-   `-DCMAKE_PREFIX_PATH=$ELOQDB_PREFIX`; eloqdoc's SCons gets the same prefix. Pinned project-local
-   deps (e.g. eloqsql's vendored rocksdb) are searched ahead of the shared prefix.
+   via `_scripts/deps.sh` (cloud stack only if a backend needs it).
+3. Build the shared core (`data_substrate`) once via `_scripts/substrate.sh`.
+4. Build each enabled product by calling its `build.sh` (at the repo root, under `projects/<name>/`):
+   CMake products get `-DCMAKE_PREFIX_PATH=$ELOQDB_PREFIX`; eloqdoc's SCons gets the same prefix.
+   Pinned project-local deps (e.g. eloqsql's vendored rocksdb) are searched ahead of the shared
+   prefix. Since `ELOQDB_ROOT` is already exported, each product `build.sh` takes the orchestrated
+   path — skipping env setup and dep/substrate steps.
 
 ### eloquentdb specifics
 
 eloquentdb is itself an umbrella whose CMake links eloqkv + eloqsql + the core into one `eloqdb`
 binary. Upstream it declares each engine as a pinned git submodule; here those are **not** pulled —
-its adapter points each engine at the umbrella's own `projects/<engine>` checkout and the shared
+its `build.sh` points each engine at the umbrella's own `projects/<engine>` checkout and the shared
 core, driven by eloquentdb's `.gitmodules`, following latest.
 
 ## eloqdoc build constraint: locked to MongoDB 4.0.3 + SCons (now on Python 3)
@@ -198,7 +212,7 @@ build — but, as of `lintao-mod`, ported to **Python 3** (see "Decision" below)
   generator scripts (`generate_error_codes.py`, `generate_stop_words.py`, the FTS unicode
   generators, …) on `lintao-mod`; the vendored SCons 2.5.0 engine was dropped in favor of a
   pip-installed modern SCons (4.10.x) running under a hermetic Python 3 venv
-  (`scripts/projects/eloqdoc.sh`'s `ensure_eloqdoc_venv`, `.venv-eloqdoc/`). `generate_error_codes.py`
+  (`projects/eloqdoc/build.sh`'s `_ensure_eloqdoc_venv`, `.venv-eloqdoc/`). `generate_error_codes.py`
   needs `Cheetah.Template`; the original `Cheetah` is Python-2-only and unmaintained, so the venv
   installs **Cheetah3** (its actively-maintained Python 3 drop-in fork) instead. This removes the
   Python 2 dependency permanently while staying on AGPL 4.0.3. (Cannot copy MongoDB 4.4's own Py3
@@ -214,7 +228,7 @@ build — but, as of `lintao-mod`, ported to **Python 3** (see "Decision" below)
   shared core. The eloqdata CMake was patched on `lintao-mod` (tx_service, eloqkv, eloqsql,
   eloqdoc) to make every in-tree submodule path overridable; eloqstore defaults
   `GIT_SUBMODULE=OFF`. The **one** sanctioned exception is eloqdoc's
-  `link_data_substrate_into_eloq_module` (in `scripts/projects/eloqdoc.sh`): vendored MongoDB +
+  `_link_data_substrate_into_eloq_module` (in `projects/eloqdoc/build.sh`): vendored MongoDB +
   the Eloq module hardcode `mongo/db/modules/eloq/data_substrate/...` across ~76 `#include`s with
   no override hook, so that single in-tree path is symlinked to the shared `dependencies/`
   checkout — see rule 2 above. (Remaining symlinks beyond that are intra-dependency artifacts —
@@ -230,7 +244,7 @@ build — but, as of `lintao-mod`, ported to **Python 3** (see "Decision" below)
 - **Builds (default ELOQSTORE + ROCKSDB backend):**
   - **eloqkv** — builds end-to-end ✅ (0 symlinks, 0 submodule pulls).
   - **eloqsql** — builds end-to-end ✅ (`mariadbd`/`mysqld`). Needs system `bison` (apt) and the
-    adapter adds `-I$ELOQDB_PREFIX/include` so MariaDB's `sql/` finds brpc's `<bthread/…>` headers.
+    product `build.sh` adds `-I$ELOQDB_PREFIX/include` so MariaDB's `sql/` finds brpc's `<bthread/…>` headers.
   - **eloqdoc** — builds end-to-end ✅, including the MongoDB SCons server stage
     (`scons install-core` produces `install/bin/eloqdoc`/`eloqdoc-cli`, reporting
     `db version v0.2.6 (compatible with MongoDB version v4.0.3)`, `modules: eloq`). Got there via
@@ -249,11 +263,11 @@ build — but, as of `lintao-mod`, ported to **Python 3** (see "Decision" below)
   - **eloquentdb** — builds end-to-end ✅ (unified `eloqdb` binary = eloqkv + eloqsql + core).
     Engines pointed at `projects/<engine>` via `-DELOQKV_DIR`/`-DELOQSQL_DIR`; needed three real
     (non-symlink) fixes on `lintao-mod`: eloqsql feature_summary non-fatal in library mode (CURL
-    false-flag), `CPATH=install/include` in the adapter (eloqkv_lib loses the prefix include in
-    converged mode → glog), and C++20 (eloqkv headers use `std::atomic<shared_ptr>`).
+    false-flag), `CPATH=install/include` in the product `build.sh` (eloqkv_lib loses the prefix
+    include in converged mode → glog), and C++20 (eloqkv headers use `std::atomic<shared_ptr>`).
 - **System build-tools are apt-installed by the user** (bison, flex, …), not built into `install/`
   — that prefix holds libraries only. The lone sanctioned local toolchain is eloqdoc's hermetic
   Python 3 build venv (`.venv-eloqdoc/` — modern SCons + Cheetah3 + the IDL compiler's deps; see
-  `ensure_eloqdoc_venv` in `scripts/projects/eloqdoc.sh`).
+  `_ensure_eloqdoc_venv` in `projects/eloqdoc/build.sh`).
 - **Build parallelism is memory-capped** (`env.sh`: `ELOQDB_JOBS=min(nproc, ½·RAM_GB)`) so the
   heavy C++ TUs don't OOM-kill the build; lower `ELOQDB_JOBS=4` if a build still dies suddenly.

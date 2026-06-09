@@ -11,7 +11,7 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/../env.sh"
-source "$HERE/lib/common.sh"
+source "$HERE/common.sh"
 
 target="${1:-build}"
 

@@ -1,22 +1,49 @@
 #!/usr/bin/env bash
-# Layer 1 of the EloqDB build: third-party + eloqdata-fork dependencies, into the local
-# prefix (no sudo). The Eloq core (data_substrate) is layer 2 — see scripts/substrate.sh.
-#
-# Versioning policy:
-#   - eloqdata/* forks  -> clone_latest (default-branch HEAD)
-#   - third-party       -> pinned tag/tarball (PIN_* below)
-#
-# Recipes mirror the legacy install_dependency_ubuntu2404.sh, with every
-# `sudo`/`/usr` install redirected to $ELOQDB_PREFIX.
-#
-# Usage:  scripts/deps.sh [--with-cloud] [--with-tests]
+# Layer 1 of the EloqDB build: third-party + eloqdata-fork dependencies.
+# Internal script — invoked automatically by build.sh.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Guard: this is an internal layer script. Direct invocation is unsupported.
+if [ -z "${ELOQDB_ORCHESTRATED:-}" ]; then
+    cat <<'EOF'
+
+================================================================
+  EloqDB Build System
+  https://github.com/ltzhang/eloq_build_env
+================================================================
+
+  deps.sh is an internal build layer — use build.sh instead:
+
+    build.sh [--deps-only] [--fetch-only] [OPTIONS]
+    build.sh --help
+
+  Advanced: to bypass this check (e.g. for debugging):
+    ELOQDB_ORCHESTRATED=1 _scripts/deps.sh [OPTIONS]
+
+================================================================
+
+EOF
+    exit 1
+fi
+
+_usage() {
+    cat <<'EOF'
+Usage: scripts/deps.sh [OPTIONS]   (internal — prefer build.sh)
+
+  --with-cloud          Build full cloud stack (aws-sdk-cpp, google-cloud-cpp, rocksdb-cloud)
+  --with-tests          Also build test deps (Catch2, FakeIt)
+  --fetch-only          Clone/download sources only; skip compilation
+  --help                Show this help
+EOF
+}
+
 source "$HERE/../env.sh"
-source "$HERE/lib/common.sh"
+source "$HERE/common.sh"
 
 WITH_AWS=0; WITH_GCP=0; WITH_ROCKSDB_CLOUD=0; WITH_TESTS=0
+FETCH_ONLY="${ELOQDB_FETCH_ONLY:-0}"   # inherited from build.sh or set via --fetch-only
 for a in "$@"; do
     case "$a" in
         --with-aws)           WITH_AWS=1 ;;
@@ -24,7 +51,9 @@ for a in "$@"; do
         --with-rocksdb-cloud) WITH_ROCKSDB_CLOUD=1; WITH_AWS=1; WITH_GCP=1 ;;  # builds aws+gcp variants
         --with-cloud)         WITH_AWS=1; WITH_GCP=1; WITH_ROCKSDB_CLOUD=1 ;;   # shorthand: all cloud deps
         --with-tests)         WITH_TESTS=1 ;;
-        *) eloqdb_die "unknown arg: $a" ;;
+        --fetch-only)         FETCH_ONLY=1 ;;
+        --help|-h)            _usage; exit 0 ;;
+        *) eloqdb_die "unknown arg: $a (try --help)" ;;
     esac
 done
 
@@ -63,6 +92,7 @@ copy_output_tree() {
 # ===== Tier 0: leaf deps =====================================================
 build_abseil() { dep_done abseil && return 0
     clone_pinned https://github.com/abseil/abseil-cpp.git "$TP/abseil-cpp" "$PIN_ABSEIL_REF"
+    [ "${FETCH_ONLY:-0}" = 1 ] && return 0
     # Do NOT patch ABSL_OPTION_USE_STD_* to 0 (the legacy install_dependency did this, forcing
     # absl::string_view/optional/variant/any). data_substrate's vendored abseil keeps the default
     # =2 (std types), and tx_service uses std::string_view heterogeneous lookup — so the prefix
@@ -73,48 +103,57 @@ build_abseil() { dep_done abseil && return 0
 
 build_lua() { dep_done lua && return 0
     fetch_tarball "$PIN_LUA" "$TP/lua"
+    [ "${FETCH_ONLY:-0}" = 1 ] && return 0
     make -C "$TP/lua" all -j "$ELOQDB_JOBS"
     make -C "$TP/lua" install INSTALL_TOP="$ELOQDB_PREFIX"
     dep_mark_done lua; }
 
 build_liburing() { dep_done liburing && return 0
     clone_pinned https://github.com/axboe/liburing.git "$TP/liburing" "$PIN_LIBURING_TAG"
+    [ "${FETCH_ONLY:-0}" = 1 ] && return 0
     ( cd "$TP/liburing" && ./configure --prefix="$ELOQDB_PREFIX" --cc=gcc --cxx=g++ \
         && make -j "$ELOQDB_JOBS" && make install )
     dep_mark_done liburing; }
 
 build_json() { dep_done json && return 0
     fetch_tarball "$PIN_JSON" "$TP/json"
+    [ "${FETCH_ONLY:-0}" = 1 ] && return 0
     cmake_install "$TP/json" -DJSON_BuildTests=OFF -DBUILD_TESTING=OFF
     dep_mark_done json; }
 
 build_crc32c() { dep_done crc32c && return 0
     fetch_tarball "$PIN_CRC32C" "$TP/crc32c"
+    [ "${FETCH_ONLY:-0}" = 1 ] && return 0
     cmake_install "$TP/crc32c" -DCRC32C_BUILD_TESTS=OFF -DCRC32C_BUILD_BENCHMARKS=OFF -DCRC32C_USE_GLOG=OFF
     dep_mark_done crc32c; }
 
 build_re2() { dep_done re2 && return 0
     fetch_tarball "$PIN_RE2" "$TP/re2"
+    [ "${FETCH_ONLY:-0}" = 1 ] && return 0
     cmake_install "$TP/re2" -DRE2_BUILD_TESTING=OFF
     dep_mark_done re2; }
 
 build_glog() { dep_done glog && return 0
     clone_latest https://github.com/eloqdata/glog.git "$SM/glog"
+    [ "${FETCH_ONLY:-0}" = 1 ] && return 0
     cmake_install "$SM/glog"
     dep_mark_done glog; }
 
 build_mimalloc() { dep_done mimalloc && return 0
     clone_latest https://github.com/eloqdata/mimalloc.git "$SM/mimalloc"
+    [ "${FETCH_ONLY:-0}" = 1 ] && return 0
     cmake_install "$SM/mimalloc"
     dep_mark_done mimalloc; }
 
 build_cuckoofilter() { dep_done cuckoofilter && return 0
     clone_latest https://github.com/eloqdata/cuckoofilter.git "$SM/cuckoofilter"
+    [ "${FETCH_ONLY:-0}" = 1 ] && return 0
     make -C "$SM/cuckoofilter" install PREFIX="$ELOQDB_PREFIX"
     dep_mark_done cuckoofilter; }
 
 build_rocksdb() { dep_done rocksdb && return 0
     clone_pinned https://github.com/facebook/rocksdb.git "$TP/rocksdb" "$PIN_ROCKSDB_TAG"
+    [ "${FETCH_ONLY:-0}" = 1 ] && return 0
     # v9.1.0 install honors PREFIX (LIBDIR=$PREFIX/lib, DESTDIR empty); INSTALL_PATH is ignored.
     ( cd "$TP/rocksdb" && USE_RTTI=1 PORTABLE=1 ROCKSDB_DISABLE_TCMALLOC=1 ROCKSDB_DISABLE_JEMALLOC=1 \
         make -j "$ELOQDB_JOBS" shared_lib \
@@ -124,12 +163,14 @@ build_rocksdb() { dep_done rocksdb && return 0
 # ===== Tier 1: needs abseil =================================================
 build_protobuf() { dep_done protobuf && return 0
     fetch_tarball "$PIN_PROTOBUF" "$TP/protobuf"
+    [ "${FETCH_ONLY:-0}" = 1 ] && return 0
     cmake_install "$TP/protobuf" -Dprotobuf_BUILD_TESTS=OFF -Dprotobuf_ABSL_PROVIDER=package
     dep_mark_done protobuf; }
 
 # ===== Tier 2: needs protobuf/abseil/glog ===================================
 build_grpc() { dep_done grpc && return 0
     fetch_tarball "$PIN_GRPC" "$TP/grpc"
+    [ "${FETCH_ONLY:-0}" = 1 ] && return 0
     cmake_install "$TP/grpc" -DgRPC_INSTALL=ON -DgRPC_BUILD_TESTS=OFF \
         -DgRPC_ABSL_PROVIDER=package -DgRPC_CARES_PROVIDER=package \
         -DgRPC_PROTOBUF_PROVIDER=package -DgRPC_RE2_PROVIDER=package \
@@ -138,6 +179,7 @@ build_grpc() { dep_done grpc && return 0
 
 build_brpc() { dep_done brpc && return 0
     clone_latest https://github.com/eloqdata/brpc.git "$SM/brpc"
+    [ "${FETCH_ONLY:-0}" = 1 ] && return 0
     local bld="$ELOQDB_BUILD/deps/brpc"
     cmake -S "$SM/brpc" -B "$bld" -DWITH_GLOG=ON -DIO_URING_ENABLED=ON -DBUILD_SHARED_LIBS=ON \
         -DCMAKE_PREFIX_PATH="$ELOQDB_PREFIX"
@@ -147,12 +189,14 @@ build_brpc() { dep_done brpc && return 0
 
 build_prometheus() { dep_done prometheus && return 0
     clone_pinned https://github.com/jupp0r/prometheus-cpp.git "$TP/prometheus-cpp" "$PIN_PROMETHEUS_TAG"
+    [ "${FETCH_ONLY:-0}" = 1 ] && return 0
     cmake_install "$TP/prometheus-cpp" -DENABLE_PUSH=OFF -DENABLE_TESTING=OFF
     dep_mark_done prometheus; }
 
 # ===== Tier 3: needs brpc ===================================================
 build_braft() { dep_done braft && return 0
     clone_latest https://github.com/eloqdata/braft.git "$SM/braft"
+    [ "${FETCH_ONLY:-0}" = 1 ] && return 0
     sed -i 's/libbrpc.a//g' "$SM/braft/CMakeLists.txt"
     local bld="$ELOQDB_BUILD/deps/braft"
     cmake -S "$SM/braft" -B "$bld" -DBRPC_WITH_GLOG=ON -DCMAKE_PREFIX_PATH="$ELOQDB_PREFIX"
@@ -163,11 +207,13 @@ build_braft() { dep_done braft && return 0
 # ===== Tier: tests (optional) ===============================================
 build_catch2() { dep_done catch2 && return 0
     clone_pinned https://github.com/catchorg/Catch2.git "$TP/Catch2" "$PIN_CATCH2_TAG"
+    [ "${FETCH_ONLY:-0}" = 1 ] && return 0
     cmake_install "$TP/Catch2" -DCATCH_BUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF
     dep_mark_done catch2; }
 
 build_fakeit() { dep_done fakeit && return 0
     clone_pinned https://github.com/eranpeer/FakeIt.git "$TP/FakeIt" "$PIN_FAKEIT_TAG"
+    [ "${FETCH_ONLY:-0}" = 1 ] && return 0
     mkdir -p "$ELOQDB_PREFIX/include/catch2"
     cp "$TP/FakeIt/single_header/catch/fakeit.hpp" "$ELOQDB_PREFIX/include/catch2/fakeit.hpp"
     dep_mark_done fakeit; }
@@ -175,6 +221,7 @@ build_fakeit() { dep_done fakeit && return 0
 # ===== Tier 4: optional cloud stack =========================================
 build_aws() { dep_done aws && return 0
     clone_pinned https://github.com/aws/aws-sdk-cpp.git "$TP/aws" "$PIN_AWS_TAG"
+    [ "${FETCH_ONLY:-0}" = 1 ] && return 0
     # eloqstore needs only s3; DynamoDB/cloud backends widen this via ELOQDB_AWS_COMPONENTS.
     local comps="${ELOQDB_AWS_COMPONENTS:-s3}"
     eloqdb_log "building aws-sdk-cpp (components: $comps)"
@@ -184,12 +231,14 @@ build_aws() { dep_done aws && return 0
 
 build_google_cloud() { dep_done google_cloud && return 0
     fetch_tarball "$PIN_GOOGLE_CLOUD" "$TP/google-cloud-cpp"
+    [ "${FETCH_ONLY:-0}" = 1 ] && return 0
     cmake_install "$TP/google-cloud-cpp" -DBUILD_TESTING=OFF \
         -DGOOGLE_CLOUD_CPP_ENABLE_EXAMPLES=OFF -DGOOGLE_CLOUD_CPP_ENABLE="bigtable;storage"
     dep_mark_done google_cloud; }
 
 build_rocksdb_cloud() { dep_done rocksdb_cloud && return 0
     clone_latest https://github.com/eloqdata/rocksdb-cloud.git "$SM/rocksdb-cloud"
+    [ "${FETCH_ONLY:-0}" = 1 ] && return 0
     ( cd "$SM/rocksdb-cloud"
       LIBNAME=librocksdb-cloud-aws USE_RTTI=1 USE_AWS=1 ROCKSDB_DISABLE_TCMALLOC=1 ROCKSDB_DISABLE_JEMALLOC=1 \
         make shared_lib -j "$ELOQDB_JOBS"
